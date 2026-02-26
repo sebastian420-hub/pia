@@ -67,21 +67,33 @@ pia-core/
 ### 1. Build and Run the Database Engine
 The custom PostgreSQL image compiles Apache AGE from source and installs TimescaleDB and PostGIS.
 ```bash
+# Linux/macOS
 make build
 make up
+
+# Windows
+./ps.ps1 build
+./ps.ps1 up
 ```
-*(Alternatively: `docker compose build` and `docker compose up -d`)*
 
 ### 2. Run the Test Suite
 Ensure the engine is running properly and all 5 critical extensions are active.
 ```bash
+# Linux/macOS
 make test
+
+# Windows
+./ps.ps1 test
 ```
 
 ### 3. Seed the Geographic Foundation
-Before the system can map intelligence, it needs to know the world map. This script downloads the GeoNames dataset (33k+ cities) and bulk-inserts them into the graph.
+Before the system can map intelligence, it needs to know the world map.
 ```bash
+# Linux/macOS
 make seed-geo
+
+# Windows
+./ps.ps1 seed-geo
 ```
 
 ---
