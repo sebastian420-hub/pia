@@ -1,0 +1,25 @@
+# Data
+*.zip
+*.txt
+*.csv
+*.tsv
+data/
+ingestion/geo/cities15000.txt
+
+# Database
+pgdata/
+
+# Environment
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env/
+
+# OS
+.DS_Store
+Thumbs.db

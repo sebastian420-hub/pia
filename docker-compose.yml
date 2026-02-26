@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  postgres:
+    build: .
+    container_name: pia_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: pia
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pia
+    ports:
+      - "5432:5432"
+    volumes:
+      - pia_pgdata:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    command: >
+      postgres 
+      -c shared_preload_libraries='timescaledb,pg_cron,age'
+      -c cron.database_name='pia'
+      -c max_connections=200
+      -c shared_buffers=1GB
+
+volumes:
+  pia_pgdata:
