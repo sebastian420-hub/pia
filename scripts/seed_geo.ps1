@@ -4,7 +4,7 @@
 $downloadUrl = "https://download.geonames.org/export/dump/cities15000.zip"
 $zipPath = "cities.zip"
 $txtPath = "cities15000.txt"
-$sqlPath = "database/ingestion/geo/ingest_geonames.sql"
+$sqlPath = "database/seeds/geo/ingest_geonames.sql"
 
 Write-Host "--- Starting Tier 1 Seeding ---"
 
@@ -15,6 +15,9 @@ if (-not (Test-Path $zipPath)) {
 
 Write-Host "Extracting dataset..."
 Expand-Archive -Path $zipPath -DestinationPath "." -Force
+
+Write-Host "Copying SQL into database container..."
+docker cp $sqlPath pia_postgres:/tmp/ingest_geonames.sql
 
 Write-Host "Copying data into database container..."
 docker cp $txtPath pia_postgres:/tmp/cities15000.txt

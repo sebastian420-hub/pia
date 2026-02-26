@@ -25,7 +25,7 @@ class DatabaseManager:
                     "host": self.host,
                     "port": self.port,
                     "user": self.user,
-                    "database": self.dbname
+                    "database": self.dbname  # This ensures we use 'pia'
                 }
                 if self.password:
                     conn_kwargs["password"] = self.password
@@ -40,16 +40,17 @@ class DatabaseManager:
         return self._conn
 
     def execute_query(self, query, params=None, fetch=False):
-        """Executes a query and optionally fetches results."""
+        """Executes a query (single or multi-statement) and optionally fetches results."""
         conn = self.get_connection()
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             try:
+                # Use psycopg2's native multi-statement support
                 cur.execute(query, params)
                 if fetch:
                     return cur.fetchall()
             except Exception as e:
-                logger.error(f"Query execution failed: {e}")
-                raise
+                # logger.error(f"Query execution failed: {e}")
+                raise e
 
     def close(self):
         """Closes the connection."""

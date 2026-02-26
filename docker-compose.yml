@@ -9,12 +9,10 @@ services:
       POSTGRES_USER: pia
       POSTGRES_PASSWORD: password
       POSTGRES_DB: pia
-      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "5432:5432"
     volumes:
       - pia_pgdata:/var/lib/postgresql/data
-      - ./database/schema:/docker-entrypoint-initdb.d
     command: >
       postgres 
       -c shared_preload_libraries='timescaledb,pg_cron,age'
@@ -23,9 +21,9 @@ services:
       -c shared_buffers=1GB
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pia -d pia"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
 
   seismic_agent:
     build:
@@ -33,6 +31,10 @@ services:
       dockerfile: ./infra/agents/Dockerfile
     container_name: seismic_agent
     restart: always
+    volumes:
+      - ./tests:/app/tests
+      - ./database:/app/database
+      - ./scripts:/app/scripts
     environment:
       - DB_HOST=postgres
       - DB_USER=pia

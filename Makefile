@@ -12,6 +12,9 @@ build:
 test:
 	pytest tests/integration -v
 
+e2e:
+	docker exec seismic_agent pytest tests/integration/test_signal_path.py -v -s
+
 lint:
 	ruff check .
 	black --check .
