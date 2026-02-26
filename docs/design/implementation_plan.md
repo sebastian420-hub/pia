@@ -7,44 +7,38 @@ This document provides a systematic, step-by-step technical implementation plan 
 
 ## 1. Repository Architecture (Monorepo)
 
-A monorepo structure is recommended to keep database schemas, ingestion scripts, AI agents, and APIs synchronized.
+A professional monorepo structure is used to maintain clean separation between the "Brain" (Python source) and the "Body" (PostgreSQL, Docker, SQL schemas).
 
 ```text
 pia-core/
 ├── .env.example                 # Environment variables template
 ├── docker-compose.yml           # Local dev infrastructure (Postgres, Redis, PgBouncer)
+├── Makefile                     # Shortcut commands for devs
+├── pyproject.toml               # Modern Python dependency management
 ├── README.md
 │
-├── database/                    # All database artifacts
-│   ├── init/                    # Docker init scripts (extensions setup)
-│   ├── schema/                  # SQL files for schema creation
-│   │   ├── 01_extensions.sql
-│   │   ├── 02_layer1_telemetry.sql
-│   │   ├── 03_layer2_uir.sql
-│   │   ├── 04_layer3_4_clusters.sql
-│   │   ├── 05_phase2_entities_graph.sql
-│   │   └── 06_functions_triggers.sql
-│   └── migrations/              # Migration scripts (Flyway/Alembic)
+├── database/                    # All SQL artifacts
+│   ├── schema/                  # 02-06 SQL files defining the 6 layers
+│   └── seeds/                   # Raw SQL ingestion scripts (geo, wikidata)
 │
-├── ingestion/                   # One-off and batch seed ingestion scripts
-│   ├── geo/                     # GeoNames & OSMNames parsers
-│   ├── wikidata/                # Wikidata5M graph importer
-│   └── historical/              # CIA CREST, Gutenberg, ACLED importers
+├── infra/                       # DevOps & Infrastructure
+│   └── postgres/                # Custom build (Timescale + Apache AGE)
+│       ├── Dockerfile
+│       └── init/                # 01_extensions.sql
 │
-├── agents/                      # Python-based autonomous agents
-│   ├── core/                    # Shared LLM clients, DB connections, embeddings
-│   ├── collectors/              # Live data (OpenSky, USGS, OSINT scrapers)
-│   ├── processors/              # Entity extraction, NLP routing
-│   └── analysts/                # Heartbeat processors (reads analysis_queue)
+├── src/                         # The Python App
+│   └── pia/                     # Main package
+│       ├── core/                # Database clients, models, shared logic
+│       ├── agents/              # Autonomous agent implementations
+│       ├── ingestion/           # Python wrappers for data loaders
+│       └── api/                 # FastMCP server exposing tools to OpenClaw
 │
-├── mcp-server/                  # Model Context Protocol Server
-│   ├── tools/                   # Tool definitions (search_entities, traverse_graph)
-│   └── server.py                # FastMCP entry point
+├── scripts/                     # Developer utility scripts (PowerShell/Bash)
 │
-└── interfaces/                  # User-facing applications
-    ├── openclaw/                # OpenClaw agent configurations
-    ├── telegram-bot/            # Telegram delivery integration
-    └── globe-ui/                # SENTINEL React/Three.js frontend
+└── tests/                       # Complete testing suite
+    ├── unit/                    # Logic tests (no DB)
+    ├── integration/             # Tests requiring a live DB
+    └── conftest.py              # Pytest fixtures
 ```
 
 ---
@@ -76,9 +70,9 @@ If any fail: fix the Docker image now, not after you have written 500 lines of s
     *   Execute SQL for Layer 2 (`intelligence_records` / UIR) with GIST (spatial) and DiskANN (semantic) indexes.
     *   Execute SQL for Layer 3 (`intelligence_clusters`) and Layer 4 (`intelligence_digests`).
 3.  **Tier 1 Seeding (Geography):**
-    *   Write `ingestion/geo/import_geonames.py`.
-    *   Download `allCountries.zip` from GeoNames.
-    *   Parse the TSV and bulk insert (`COPY`) into a foundational `entities` table as `LOCATION` types with PostGIS geometries.
+    *   Write `database/seeds/geo/ingest_geonames.sql`.
+    *   Create a `scripts/seed_geo.ps1` to download `allCountries.zip` from GeoNames and push it to the container.
+    *   Run `make seed-geo` to execute the bulk insert (`COPY`) into a foundational `entities` table as `LOCATION` types with PostGIS geometries.
 
 ### Phase 2: The Knowledge Graph Seed (Week 2)
 **Goal:** Pre-populate the system's "memory" with the world's entities and relationships.
