@@ -2,18 +2,19 @@
 
 ## [0.1.0] - 2026-02-26
 ### Added
-- **Engine:** Custom PostgreSQL 16 image with PostGIS, TimescaleDB, pgvector, Apache AGE, and pg_cron.
-- **Schema:** Full 6-layer intelligence data model implemented in `database/schema/full_schema.sql`.
+- **Engine:** Standard PostgreSQL 16 image with PostGIS, TimescaleDB, pgvector, Apache AGE, and pg_cron.
+- **Schema:** Full 6-layer intelligence data model implemented via modular 01-06 SQL sequence.
 - **Seeding:** Tier 1 Geographic baseline (GeoNames) with 33,336 urban center entities.
-- **Python Core:** `DatabaseManager` (SQLAlchemy/Psycopg2) and `BaseAgent` (ABC lifecycle).
-- **Agents:** `SeismicAgent` for real-time USGS GeoJSON telemetry ingestion.
-- **Trigger:** `uir_analysis_trigger` (Heartbeat) for automated analysis queueing.
-- **Testing:** `test_signal_path.py` for full E2E validation.
+- **Python Core:** `DatabaseManager` (psycopg2) and `BaseAgent` (ABC lifecycle).
+- **Agents:** `SeismicAgent` service running in a dedicated container for real-time telemetry.
+- **Trigger:** `uir_analysis_trigger` (Heartbeat) with `pg_notify` support.
+- **Validation:** `validate_system.py` orchestrator for atomic deployment and testing.
+- **Ledger:** ROADMAP, CHANGELOG, and ADR system initialized.
 
 ### Fixed
-- Authentication failures between Host and Container resolved via containerized agent service.
-- Filename synchronization in database initialization scripts.
-- Apache AGE `search_path` and `create_graph` session persistence.
+- Host-to-Container connectivity resolved via Internal Docker Network (`DB_HOST=postgres`).
+- Schema persistence issues resolved via unified `validate_system.py` logic.
+- Apache AGE initialization and global `search_path` configuration.
 
 ### Verified
-- **Health Check:** 100% GREEN pass rate on E2E signal propagation tests.
+- **End-to-End Flow:** 100% success rate on signal propagation tests (External API -> Database -> Analysis Queue).

@@ -43,13 +43,16 @@ The intelligence flows upward through six layers within a custom-built **Postgre
 
 ```text
 pia-core/
-├── src/pia/                     # The Python App (Agents, API, Core logic)
-├── database/                    # The Memory (SQL Schemas & Migrations)
-│   ├── schema/                  # 02-06 SQL files defining the 6 layers
+├── src/pia/                     # The Brain: Python App (Agents, Models, Core)
+├── database/                    # The Memory: SQL Artifacts (Schema, Seeds)
+│   ├── schema/                  # 01-06 SQL files defining the 6 layers
 │   └── seeds/                   # Foundational seed data (Geography)
-├── infra/postgres/              # The Body (Docker & DB extensions)
-├── tests/                       # Pytest integration and unit tests
-└── docs/                        # Architecture decisions and design docs
+├── infra/                       # The Body: Infrastructure (Postgres, Agents)
+├── scripts/                     # The Tools: Orchestration & Utility Scripts
+├── tests/                       # The Validation: Integration & Unit Tests
+├── docs/                        # The Ledger: Design Docs & Status Reports
+├── pyproject.toml               # Python Dependency Management
+└── docker-compose.yml           # Service Orchestration
 ```
 
 ---
