@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   postgres:
-    build: .
+    build: ./infra/postgres
     container_name: pia_postgres
     restart: always
     environment:
@@ -13,7 +13,7 @@ services:
       - "5432:5432"
     volumes:
       - pia_pgdata:/var/lib/postgresql/data
-      - ./database/init:/docker-entrypoint-initdb.d
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d
     command: >
       postgres 
       -c shared_preload_libraries='timescaledb,pg_cron,age'
