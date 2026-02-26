@@ -9,6 +9,7 @@ dependencies = [
     "loguru>=0.7.2",
     "sqlalchemy>=2.0.27",
     "geoalchemy2>=0.14.3",
+    "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]
