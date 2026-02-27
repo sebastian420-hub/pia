@@ -1,27 +1,27 @@
 # PIA System Status Report
 **Date:** February 26, 2026
-**Project Phase:** Phase 5 (Interface Layer) — COMPLETE / 100% VERIFIED
+**Project Phase:** Phase 4.1 (Cognitive Core) — COMPLETE / VERIFIED
 
 ## 1. Executive Summary
-The Personal Intelligence Agency (PIA) is now **fully interactive**. We have successfully implemented the Interface Layer (MCP), allowing the Director to query the system's "Brain" and "Nervous System" using natural language. The system has passed a master end-to-end validation suite with 100% success across all six layers.
+The Personal Intelligence Agency (PIA) has achieved its first major **Intelligence Milestone**. The central `AnalystAgent` has been successfully upgraded with NLP (Natural Language Processing) capabilities. The system can now autonomously extract entities from unstructured text, resolve them against seeded knowledge, and perform multi-hop graph updates.
 
 ---
 
 ## 2. Technical Milestones Achieved
 
-### 2.1 Interface Layer (MCP)
-- **Status:** LIVE.
-- **Service:** `mcp_server` is running on port 8000 using SSE transport.
-- **Capability:** Exposes `get_active_clusters`, `get_cluster_details`, and `get_system_health` tools to AI agents (OpenClaw, Claude).
+### 2.1 The Cognitive Core (Analyst Brain)
+- **Status:** UPGRADED.
+- **New Capability:** **Entity Extraction.** Uses a local LLM (Kimi K2.5) to identify People, Orgs, and Infrastructure in raw UIR text.
+- **New Capability:** **Entity Resolution.** Fuzzy-matches extracted names against the seeded database to ensure data integrity.
+- **New Capability:** **Graph Synchronization.** Inferred relationships are automatically mirrored into the Apache AGE property graph.
 
-### 2.2 Autonomous Reasoner (Brain)
-- **Status:** VERIFIED.
-- **Proof:** Successfully grouped injected mock signals and live seismic events into geographic clusters near Clearlake, CA.
-- **Loop:** Ingestion -> Queue -> Spatial Correlation -> Clustering -> MCP Retrieval is confirmed.
+### 2.2 Semantic Foundation
+- **Service:** `NLPManager` is live.
+- **Logic:** Implements a strict JSON extraction schema, ensuring LLM outputs are deterministic and machine-readable.
+- **Traceability:** Entities now track `mention_count` and `uir_refs` providing a full audit trail of how knowledge was acquired.
 
-### 2.3 Master Validation
-- **Status:** 100% GREEN.
-- **Metric:** All 4 tests in `test_final_stack.py` passed, confirming extension integrity, seeded knowledge, reasoning loops, and tool accessibility.
+### 2.3 Verification Success
+- **Proof:** The "Intelligence Fusion" test passed. A mock signal about SpaceX was correctly correlated to Brownsville, and the graph was updated autonomously.
 
 ---
 
@@ -29,20 +29,20 @@ The Personal Intelligence Agency (PIA) is now **fully interactive**. We have suc
 ```text
 pia-core/
 ├── src/pia/
-│   ├── agents/                  # [ACTIVE: seismic, analyst]
+│   ├── agents/                  # [ACTIVE: seismic, analyst (upgraded)]
 │   ├── api/                     # [ACTIVE: mcp_server]
-│   ├── core/                    # [ACTIVE: dynamic DatabaseManager]
+│   ├── core/                    # [ACTIVE: database, nlp, base_agent]
 │   └── models/                  # [ACTIVE: seismic pydantic models]
 ├── database/
 │   ├── schema/                  # [01-06 Layers]
 │   └── seeds/                   # [Geo baseline]
-├── tests/                       # [100% Pass: Master E2E Suite]
-└── scripts/                     # [Self-healing: validate_system.py]
+├── tests/                       # [100% Pass: Master E2E, Intelligence Fusion]
+└── scripts/                     # [Orchestration & Validation]
 ```
 
 ---
 
 ## 4. Next Planned Steps
-1.  **Phase 2 — Massive Seed:** Begin the full download and ingestion of the Wikidata5M and CIA CREST datasets.
-2.  **Multi-Sensor Expansion:** Implement the OpenSky (Flight) and MarineTraffic (Vessel) agents.
-3.  **Morning Brief Protocol:** Automate the daily delivery of finished intelligence digests via Telegram.
+1.  **Phase 2 — Data Expansion:** Ingest the full Wikidata5M dataset to populate the entity resolver.
+2.  **GEOINT Expansion:** Implement the OpenSky (Flight) agent to provide more multi-domain signals.
+3.  **Morning Brief Logic:** Automate SITREP generation based on the new intelligence clusters.

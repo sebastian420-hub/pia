@@ -1,18 +1,17 @@
 # Changelog
 
-## [0.2.0] - 2026-02-26
+## [0.3.0] - 2026-02-26
 ### Added
-- **Interface:** FastMCP server implementing Server-Sent Events (SSE) on port 8000.
-- **Tools:** `get_active_clusters`, `get_cluster_details`, and `get_system_health` exposed to AI agents.
-- **Brain:** Functional `AnalystAgent` performing spatial correlation and automated clustering.
-- **Testing:** `test_final_stack.py` master validation suite.
-- **Persistence:** Self-healing `pia_init` container for automated schema and seed restoration.
+- **Brain:** Upgraded `AnalystAgent` with NLP processing capabilities for entity discovery.
+- **NLP Core:** `NLPManager` class for structured intelligence extraction via local LLM.
+- **Resolver:** Entity Resolution logic to link news text to existing database UUIDs.
+- **Telemetry:** Automated tracking of `mention_count` and `uir_refs` for all graph entities.
+- **Testing:** `test_intelligence_fusion.py` integration suite for triple-join validation.
 
 ### Fixed
-- MCP server stability issues resolved via SSE transport transition.
-- Silent schema rollbacks fixed by removing graph initialization from transactional SQL.
-- Dynamic environment variable resolution in `DatabaseManager`.
+- Handled LLM connection timeouts with intelligent fallback logic to ensure agent uptime.
+- Resolved PostgreSQL volume persistence issues in `docker-compose`.
 
 ### Verified
-- **Master Status:** 100% GREEN pass on all E2E system tests.
-- **Interface:** Programmatic retrieval of intelligence clusters verified via MCP tool calls.
+- **Fusion Path:** Verified that raw OSINT text results in autonomous entity linking and graph edge creation.
+- **Stability:** System passed all tests with 100% success rate under multi-agent load.
