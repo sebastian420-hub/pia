@@ -78,5 +78,25 @@ services:
       pia_init:
         condition: service_completed_successfully
 
+  mcp_server:
+    build:
+      context: .
+      dockerfile: ./infra/agents/Dockerfile
+    container_name: mcp_server
+    restart: always
+    volumes:
+      - .:/app
+    command: ["python", "src/pia/api/mcp_server.py"]
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=pia
+      - DB_PASSWORD=password
+      - DB_NAME=pia
+    depends_on:
+      pia_init:
+        condition: service_completed_successfully
+
 volumes:
   pia_pgdata:

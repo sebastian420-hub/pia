@@ -10,6 +10,7 @@ dependencies = [
     "sqlalchemy>=2.0.27",
     "geoalchemy2>=0.14.3",
     "requests>=2.31.0",
+    "fastmcp>=0.4.1",
 ]
 
 [project.optional-dependencies]
