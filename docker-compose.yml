@@ -25,6 +25,24 @@ services:
       timeout: 5s
       retries: 5
 
+  pia_init:
+    build:
+      context: .
+      dockerfile: ./infra/agents/Dockerfile
+    container_name: pia_init
+    volumes:
+      - .:/app
+    command: ["python", "scripts/validate_system.py"]
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=pia
+      - DB_PASSWORD=password
+      - DB_NAME=pia
+      - PGPASSWORD=password
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   seismic_agent:
     build:
       context: .
@@ -32,17 +50,33 @@ services:
     container_name: seismic_agent
     restart: always
     volumes:
-      - ./tests:/app/tests
-      - ./database:/app/database
-      - ./scripts:/app/scripts
+      - .:/app
     environment:
       - DB_HOST=postgres
       - DB_USER=pia
       - DB_PASSWORD=password
       - DB_NAME=pia
     depends_on:
-      postgres:
-        condition: service_healthy
+      pia_init:
+        condition: service_completed_successfully
+
+  analyst_agent:
+    build:
+      context: .
+      dockerfile: ./infra/agents/Dockerfile
+    container_name: analyst_agent
+    restart: always
+    volumes:
+      - .:/app
+    command: ["python", "src/pia/agents/analyst_agent.py"]
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=pia
+      - DB_PASSWORD=password
+      - DB_NAME=pia
+    depends_on:
+      pia_init:
+        condition: service_completed_successfully
 
 volumes:
   pia_pgdata:

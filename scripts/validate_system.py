@@ -1,11 +1,25 @@
 import os
 import subprocess
 import psycopg2
+import requests
+import zipfile
 from loguru import logger
 
+def download_data():
+    txt_path = "cities15000.txt"
+    if not os.path.exists(txt_path):
+        logger.info("Downloading GeoNames dataset...")
+        url = "https://download.geonames.org/export/dump/cities15000.zip"
+        r = requests.get(url)
+        with open("cities.zip", 'wb') as f:
+            f.write(r.content)
+        with zipfile.ZipFile("cities.zip", 'r') as zip_ref:
+            zip_ref.extractall(".")
+    return os.path.abspath(txt_path)
+
 def main():
-    # 1. Connect to 'postgres' to ensure 'pia' database exists
-    logger.info("Ensuring 'pia' database exists...")
+    # 1. Ensure 'pia' database exists
+    logger.info("Step 1: DB existence check...")
     conn = psycopg2.connect(host="postgres", user="pia", password="password", database="postgres")
     conn.autocommit = True
     cur = conn.cursor()
@@ -15,14 +29,15 @@ def main():
     cur.close()
     conn.close()
 
-    # 2. Connect to 'pia' and apply EVERYTHING
-    logger.info("Connecting to 'pia' for full initialization...")
+    # 2. Initialization session
+    logger.info("Step 2: Full schema deployment...")
     conn = psycopg2.connect(host="postgres", user="pia", password="password", database="pia")
     conn.autocommit = True
     cur = conn.cursor()
 
+    # Apply ALL SQL files in one session
     schema_dir = "database/schema"
-    schemas = [
+    sql_files = [
         "01_setup_extensions.sql",
         "02_layer1_telemetry.sql",
         "03_layer2_uir_spine.sql",
@@ -31,29 +46,27 @@ def main():
         "06_system_heartbeat.sql"
     ]
 
-    for schema in schemas:
-        path = os.path.join(schema_dir, schema)
-        logger.info(f"Applying Schema: {schema}")
-        with open(path, 'r') as f:
-            sql = f.read()
-            try:
-                cur.execute(sql)
-            except Exception as e:
-                logger.warning(f"Note on {schema}: {e}")
+    for f_name in sql_files:
+        logger.info(f"Applying: {f_name}")
+        with open(os.path.join(schema_dir, f_name), 'r') as f:
+            cur.execute(f.read())
 
-    logger.info("Finalizing Graph...")
-    try:
-        cur.execute("LOAD 'age'; SET search_path = ag_catalog, public; SELECT create_graph('pia_graph');")
-    except Exception as e:
-        logger.warning(f"Graph check: {e}")
+    logger.info("Step 3: Graph initialization...")
+    cur.execute("LOAD 'age'; SET search_path = public, ag_catalog; SELECT create_graph('pia_graph');")
 
+    logger.info("Step 4: Data seeding...")
+    data_path = download_data()
+    cur.execute("CREATE TEMP TABLE t_geo (geonameid INT, name TEXT, asciiname TEXT, alternatenames TEXT, latitude FLOAT, longitude FLOAT, feature_class TEXT, feature_code TEXT, country_code TEXT, cc2 TEXT, admin1 TEXT, admin2 TEXT, admin3 TEXT, admin4 TEXT, population BIGINT, elevation TEXT, dem TEXT, timezone TEXT, modification_date DATE);")
+    with open(data_path, 'r', encoding='utf-8') as f:
+        cur.copy_from(f, 't_geo', sep='\t', null='')
+    cur.execute("INSERT INTO entities (entity_type, name, canonical_name, aliases, description, confidence, watch_status, primary_geo) SELECT 'LOCATION', name, asciiname, string_to_array(alternatenames, ','), 'City', 0.99, 'PASSIVE', ST_SetSRID(ST_MakePoint(longitude, latitude), 4326) FROM t_geo ON CONFLICT DO NOTHING;")
+    
     cur.close()
     conn.close()
 
-    # 3. RUN E2E TEST
-    logger.info("Running E2E Test Suite...")
-    # Use explicit PYTHONPATH to ensure src is found
-    subprocess.run("export PYTHONPATH=/app/src && pytest tests/integration/test_signal_path.py -v -s", shell=True)
+    # 5. TEST
+    logger.info("Initialization complete. Run E2E tests manually via 'ps.ps1 validate'.")
+    # Removed subprocess.run so container exits and agents can start.
 
 if __name__ == "__main__":
     main()

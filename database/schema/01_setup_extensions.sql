@@ -8,6 +8,6 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 CREATE EXTENSION IF NOT EXISTS age;
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
--- Load Apache AGE
-LOAD 'age';
-SET search_path = ag_catalog, "$user", public;
+-- Set a global search path that prioritizes standard tables but allows graph queries
+-- This ensures that tables are created in 'public' by default.
+ALTER ROLE pia SET search_path = public, ag_catalog;

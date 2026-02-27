@@ -25,7 +25,7 @@ CREATE TEMP TABLE tmp_geonames (
 );
 
 -- 2. Use blazing fast native COPY to load the file
-COPY tmp_geonames FROM '/tmp/cities15000.txt' NULL AS '' DELIMITER E'	';
+COPY tmp_geonames FROM '/app/cities15000.txt' NULL AS '' DELIMITER E'	';
 
 -- 3. Transform and insert into the permanent entities graph
 INSERT INTO entities (

@@ -140,6 +140,3 @@ CREATE TABLE analysis_queue (
 );
 CREATE INDEX idx_queue_pending ON analysis_queue(priority DESC, created_at ASC) WHERE status = 'PENDING';
 CREATE INDEX idx_queue_status ON analysis_queue(status, created_at DESC);
-
--- AGE GRAPH INITIALIZATION
-SELECT create_graph('pia_graph');

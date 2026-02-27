@@ -10,30 +10,32 @@ class DatabaseManager:
     """Manages database connections and executions for PIA agents."""
     
     def __init__(self):
-        self.host = os.getenv("DB_HOST", "localhost")
-        self.port = os.getenv("DB_PORT", "5432")
-        self.user = os.getenv("DB_USER", "pia")
-        self.password = os.getenv("DB_PASSWORD", "password")
-        self.dbname = os.getenv("DB_NAME", "pia")
         self._conn = None
 
     def get_connection(self):
-        """Returns a singleton-style connection."""
+        """Returns a singleton-style connection, fetching config from env."""
         if self._conn is None or self._conn.closed:
+            # Refresh from environment every time we open a new connection
+            host = os.getenv("DB_HOST", "localhost")
+            port = os.getenv("DB_PORT", "5432")
+            user = os.getenv("DB_USER", "pia")
+            password = os.getenv("DB_PASSWORD", "password")
+            dbname = os.getenv("DB_NAME", "pia")
+
             try:
                 conn_kwargs = {
-                    "host": self.host,
-                    "port": self.port,
-                    "user": self.user,
-                    "database": self.dbname  # This ensures we use 'pia'
+                    "host": host,
+                    "port": port,
+                    "user": user,
+                    "database": dbname
                 }
-                if self.password:
-                    conn_kwargs["password"] = self.password
+                if password:
+                    conn_kwargs["password"] = password
                 
                 self._conn = psycopg2.connect(**conn_kwargs)
                 # Set autocommit to True for simple agent operations
                 self._conn.autocommit = True
-                logger.info(f"Connected to PIA Database: {self.dbname} on {self.host}")
+                logger.info(f"Connected to PIA Database: {dbname} on {host}")
             except Exception as e:
                 logger.error(f"Failed to connect to database: {e}")
                 raise
