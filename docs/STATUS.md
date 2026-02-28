@@ -1,48 +1,51 @@
 # PIA System Status Report
-**Date:** February 26, 2026
-**Project Phase:** Phase 4.1 (Cognitive Core) — COMPLETE / VERIFIED
+**Date:** February 28, 2026
+**Project Phase:** Phase 4.2 & Phase 5 (Tactical Command & Robust Brain) — COMPLETE / VERIFIED
 
 ## 1. Executive Summary
-The Personal Intelligence Agency (PIA) has achieved its first major **Intelligence Milestone**. The central `AnalystAgent` has been successfully upgraded with NLP (Natural Language Processing) capabilities. The system can now autonomously extract entities from unstructured text, resolve them against seeded knowledge, and perform multi-hop graph updates.
+The Personal Intelligence Agency (PIA) has transitioned from an operational prototype to a **Mission-Ready, Distributed Intelligence Engine**. The system now features a parallelized analyst swarm, a seeded Knowledge Graph, live OSINT/GEOINT ingestion with deduplication, and a secure "Tactical Voice" interface via Telegram. 
 
 ---
 
 ## 2. Technical Milestones Achieved
 
-### 2.1 The Cognitive Core (Analyst Brain)
-- **Status:** UPGRADED.
-- **New Capability:** **Entity Extraction.** Uses a local LLM (Kimi K2.5) to identify People, Orgs, and Infrastructure in raw UIR text.
-- **New Capability:** **Entity Resolution.** Fuzzy-matches extracted names against the seeded database to ensure data integrity.
-- **New Capability:** **Graph Synchronization.** Inferred relationships are automatically mirrored into the Apache AGE property graph.
+### 2.1 The Robust Brain (Analyst Swarm)
+- **Status:** UPGRADED & SCALED.
+- **New Capability:** **High-Concurrency Processing.** Upgraded `AnalystAgent` with `FOR UPDATE SKIP LOCKED`, allowing multiple agents to seamlessly process the queue without collisions. Scaled to 3 concurrent instances.
+- **New Capability:** **Actual Intelligence (OpenRouter).** Transitioned from Mock Mode to real-world LLM integration (`google/gemini-2.0-flash-exp:free`) for fact-checked entity extraction.
 
-### 2.2 Semantic Foundation
-- **Service:** `NLPManager` is live.
-- **Logic:** Implements a strict JSON extraction schema, ensuring LLM outputs are deterministic and machine-readable.
-- **Traceability:** Entities now track `mention_count` and `uir_refs` providing a full audit trail of how knowledge was acquired.
+### 2.2 Senses & Memory
+- **Service:** `NewsAgent` is live, ingesting world news from multiple RSS feeds.
+- **Data Integrity:** **Global Content Deduplication** implemented via SHA-256 hashing to ensure the intelligence layer remains pure.
+- **Memory Seeded:** **Knowledge Graph** has been successfully seeded with 16 core entities and fact-checked, traversable relationships (Apache AGE).
 
-### 2.3 Verification Success
-- **Proof:** The "Intelligence Fusion" test passed. A mock signal about SpaceX was correctly correlated to Brownsville, and the graph was updated autonomously.
+### 2.3 The Tactical Voice (Telegram Bridge)
+- **Status:** ONLINE.
+- **Service:** `telegram_voice.py` securely authenticates the Director and acts as the "OpenClaw" reasoning agent.
+- **Tools:** Implemented the `search_spatial`, `get_entity_network`, and `submit_tasking` FastMCP tools.
+- **Resilience:** Built custom JSON encoders to handle database timestamps and implemented rate-limit error handling.
 
 ---
 
 ## 3. Current Repository Structure
 ```text
 pia-core/
+├── scripts/                     # [ACTIVE: check_graph, clean_graph, seed_knowledge_graph, stress_test]
 ├── src/pia/
-│   ├── agents/                  # [ACTIVE: seismic, analyst (upgraded)]
-│   ├── api/                     # [ACTIVE: mcp_server]
-│   ├── core/                    # [ACTIVE: database, nlp, base_agent]
+│   ├── agents/                  # [ACTIVE: seismic, analyst (x3), news]
+│   ├── api/                     # [ACTIVE: mcp_server, telegram_voice]
+│   ├── core/                    # [ACTIVE: database, nlp (OpenRouter), base_agent]
 │   └── models/                  # [ACTIVE: seismic pydantic models]
 ├── database/
-│   ├── schema/                  # [01-06 Layers]
+│   ├── schema/                  # [01-06 Layers, Content Hash Unique Constraint]
 │   └── seeds/                   # [Geo baseline]
-├── tests/                       # [100% Pass: Master E2E, Intelligence Fusion]
-└── scripts/                     # [Orchestration & Validation]
+├── tests/                       # [100% Pass]
+└── docker-compose.yml           # [Orchestrating 9 robust containers]
 ```
 
 ---
 
 ## 4. Next Planned Steps
-1.  **Phase 2 — Data Expansion:** Ingest the full Wikidata5M dataset to populate the entity resolver.
-2.  **GEOINT Expansion:** Implement the OpenSky (Flight) agent to provide more multi-domain signals.
-3.  **Morning Brief Logic:** Automate SITREP generation based on the new intelligence clusters.
+1.  **Phase 6 — Sentinel Mode:** Implement a proactive alerting agent that pushes priority updates to Telegram without prompting.
+2.  **Semantic Resolution:** Upgrade the `AnalystAgent` to use `pgvector` for entity similarity matching.
+3.  **Data Expansion:** Full ingest of the Wikidata5M dataset.
