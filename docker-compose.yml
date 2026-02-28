@@ -101,5 +101,27 @@ services:
       pia_init:
         condition: service_completed_successfully
 
+  telegram_voice:
+    build:
+      context: .
+      dockerfile: ./infra/agents/Dockerfile
+    container_name: telegram_voice
+    restart: always
+    volumes:
+      - .:/app
+    command: ["python", "src/pia/api/telegram_voice.py"]
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=pia
+      - DB_PASSWORD=password
+      - DB_NAME=pia
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - LLM_MODEL=${LLM_MODEL}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ALLOWED_TELEGRAM_USER_IDS=${ALLOWED_TELEGRAM_USER_IDS}
+    depends_on:
+      pia_init:
+        condition: service_completed_successfully
+
 volumes:
   pia_pgdata:
