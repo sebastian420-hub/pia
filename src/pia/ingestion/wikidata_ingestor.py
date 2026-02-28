@@ -156,6 +156,10 @@ class WikidataIngestor:
                 cur.execute(query, (rel_type, sub_qid, obj_qid))
         conn.commit()
 
+    def _safe_cypher_name(self, name: str) -> str:
+        """Escapes double quotes in entity names for safe Cypher injection."""
+        return name.replace('"', '\\"')
+
     def sync_to_age_graph(self):
         """
         Mirror relationship table data into the Apache AGE property graph.
@@ -164,11 +168,7 @@ class WikidataIngestor:
         
         # 1. Create Nodes (Vertices) for all entities not yet in the graph
         # We use cypher's MERGE to ensure idempotency
-        node_query = """
-            SELECT * FROM cypher('pia_graph', $$
-                MATCH (v) RETURN count(v)
-            $$) as (count agtype);
-        """
+        # (Simplified for the fix)
         
         # In a real large-scale sync, we'd batch this. 
         # For the MVP, we'll sync relationships that have been added.
@@ -180,26 +180,24 @@ class WikidataIngestor:
             LIMIT 1000; -- Sync in chunks for the MVP
         """
         
-        conn = self.db.get_connection()
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(rel_query)
-            rels = cur.fetchall()
-            
-            for row in rels:
-                # Use Cypher to MERGE nodes and CREATE edges
-                cypher = f"""
-                    SELECT * FROM cypher('pia_graph', $$
-                        MERGE (a:ENTITY {{name: "{row['name_a']}"}})
-                        MERGE (b:ENTITY {{name: "{row['name_b']}"}})
-                        MERGE (a)-[r:{row['relationship_type']}]->(b)
-                    $$) as (v agtype);
-                """
-                try:
-                    cur.execute(cypher)
-                except Exception as e:
-                    logger.warning(f"Failed to sync graph edge: {e}")
+        rels = self.db.execute_query(rel_query, fetch=True)
+        if not rels:
+            return
+
+        for row in rels:
+            # Use Cypher to MERGE nodes and CREATE edges
+            safe_a = self._safe_cypher_name(row['name_a'])
+            safe_b = self._safe_cypher_name(row['name_b'])
+            cypher = f"""
+                MERGE (a:ENTITY {{name: "{safe_a}"}})
+                MERGE (b:ENTITY {{name: "{safe_b}"}})
+                MERGE (a)-[r:{row['relationship_type']}]->(b)
+            """
+            try:
+                self.db.execute_cypher('pia_graph', cypher)
+            except Exception as e:
+                logger.warning(f"Failed to sync graph edge: {e}")
         
-        conn.commit()
         logger.success("Graph synchronization complete.")
 
 if __name__ == "__main__":

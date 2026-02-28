@@ -102,6 +102,10 @@ def search_spatial(lat: float, lon: float, radius_km: float = 50.0) -> List[Dict
         logger.error(f"MCP search_spatial failed: {e}")
         return [{"error": str(e)}]
 
+def _safe_cypher_name(name: str) -> str:
+    """Escapes double quotes in entity names for safe Cypher injection."""
+    return name.replace('"', '\\"')
+
 @mcp.tool()
 def get_entity_network(name: str, hops: int = 2) -> Dict:
     """
@@ -110,23 +114,19 @@ def get_entity_network(name: str, hops: int = 2) -> Dict:
     """
     logger.info(f"MCP Tool: get_entity_network called for '{name}' (hops={hops})")
     
+    safe_name = _safe_cypher_name(name)
     # We use Apache AGE for the graph traversal
     cypher_query = f"""
-        LOAD 'age';
-        SET search_path = public, ag_catalog;
-        SELECT * FROM cypher('pia_graph', $$
-            MATCH (a:ENTITY {{name: "{name}"}})
-            MATCH path = (a)-[*1..{hops}]-(connected:ENTITY)
-            RETURN connected.name, type(relationships(path)[0]), length(path)
-        $$) as (connected_name agtype, relationship_type agtype, distance agtype)
-        LIMIT 20;
+        MATCH (a:ENTITY {{name: "{safe_name}"}})
+        MATCH path = (a)-[*1..{hops}]-(connected:ENTITY)
+        RETURN connected.name, type(relationships(path)[0]), length(path)
     """
     try:
-        results = db.execute_query(cypher_query, fetch=True)
+        results = db.execute_cypher('pia_graph', cypher_query)
         return {
             "root": name,
-            "connections": [dict(r) for r in results],
-            "total_connections": len(results)
+            "connections": [dict(r) for r in results] if results else [],
+            "total_connections": len(results) if results else 0
         }
     except Exception as e:
         logger.error(f"MCP get_entity_network failed: {e}")

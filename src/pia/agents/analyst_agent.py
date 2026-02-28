@@ -51,14 +51,20 @@ class AnalystAgent(BaseAgent):
         uir_uid = claimed[0]['uir_uid']
         
         # Fetch the full context for the claimed job
-        job_context = self.db.execute_query("""
+        job_results = self.db.execute_query("""
             SELECT u.uid, u.geo, u.domain, u.priority, u.content_summary, u.content_raw, u.mission_id,
                    m.category as mission_category, m.keywords as mission_keywords
             FROM intelligence_records u
             LEFT JOIN mission_focus m ON u.mission_id = m.focus_id
             WHERE u.uid = %s
-        """, (uir_uid,), fetch=True)[0]
+        """, (uir_uid,), fetch=True)
 
+        if not job_results:
+            logger.error(f"UIR {uir_uid} not found for Job {job_id}")
+            self.db.execute_query("UPDATE analysis_queue SET status = 'FAILED', error_message = 'UIR record missing' WHERE queue_id = %s", (job_id,))
+            return
+
+        job_context = job_results[0]
         logger.info(f"Agent {self.name} claimed Job {job_id} for UIR {uir_uid} {'[MISSION: ' + job_context['mission_category'] + ']' if job_context['mission_id'] else ''}")
 
         try:
@@ -88,8 +94,8 @@ class AnalystAgent(BaseAgent):
             logger.success(f"Intelligence Fusion Complete for UIR {uir_uid}")
 
         except Exception as e:
-            logger.error(f"Fusion failed for job {job['queue_id']}: {e}")
-            self.db.execute_query("UPDATE analysis_queue SET status = 'FAILED', error_message = %s WHERE queue_id = %s", (str(e), job['queue_id']))
+            logger.error(f"Fusion failed for job {job_id}: {e}")
+            self.db.execute_query("UPDATE analysis_queue SET status = 'FAILED', error_message = %s WHERE queue_id = %s", (str(e), job_id))
 
     def process_intelligence_components(self, uir_uid: str, components: Dict) -> Dict[str, str]:
         """Resolves extracted names to database UUIDs using Semantic Disambiguation."""
@@ -162,6 +168,10 @@ class AnalystAgent(BaseAgent):
         
         return resolved_map
 
+    def _safe_cypher_name(self, name: str) -> str:
+        """Escapes double quotes in entity names for safe Cypher injection."""
+        return name.replace('"', '\\"')
+
     def process_inferred_relationships(self, resolved_map: Dict[str, str], relationships: List[Dict]):
         """Creates relationship records and mirrors to Apache AGE graph."""
         for rel in relationships:
@@ -186,15 +196,16 @@ class AnalystAgent(BaseAgent):
                         (SELECT name FROM entities WHERE entity_id = %s) as name_b
                 """, (sub_id, obj_id), fetch=True)[0]
                 
+                safe_a = self._safe_cypher_name(names['name_a'])
+                safe_b = self._safe_cypher_name(names['name_b'])
+                
                 cypher = f"""
-                    SELECT * FROM cypher('pia_graph', $$
-                        MERGE (a:ENTITY {{name: "{names['name_a']}"}})
-                        MERGE (b:ENTITY {{name: "{names['name_b']}"}})
-                        MERGE (a)-[r:{predicate}]->(b)
-                    $$) as (v agtype);
+                    MERGE (a:ENTITY {{name: "{safe_a}"}})
+                    MERGE (b:ENTITY {{name: "{safe_b}"}})
+                    MERGE (a)-[r:{predicate}]->(b)
                 """
                 try:
-                    self.db.execute_query(f"LOAD 'age'; SET search_path = public, ag_catalog; {cypher}")
+                    self.db.execute_cypher('pia_graph', cypher)
                 except Exception as e:
                     logger.warning(f"Graph relationship sync failed: {e}")
 

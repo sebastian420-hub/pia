@@ -119,7 +119,42 @@ class TelegramVoice:
                 await update.message.reply_text(f"❌ [CRITICAL ERROR]: {str(e)}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("PIA Tactical Voice Online. Standing by, Director.")
+    await update.message.reply_text("PIA Tactical Voice Online. Standing by, Director.\n\nCommands:\n/mission [Category] [Keywords] - Set new focus\n/missions_active - List current focuses")
+
+async def set_mission(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ALLOWED_IDS: return
+    
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text("Usage: /mission [Category] [Keyword1,Keyword2,...]")
+        return
+        
+    category = context.args[0].upper()
+    keywords = context.args[1].split(",")
+    
+    from pia.api.mcp_server import db
+    db.execute_query(
+        "INSERT INTO mission_focus (category, keywords, is_active) VALUES (%s, %s, TRUE)",
+        (category, keywords)
+    )
+    
+    await update.message.reply_text(f"🎯 Mission Activated: {category}\nFocusing on: {', '.join(keywords)}")
+
+async def list_missions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ALLOWED_IDS: return
+    
+    from pia.api.mcp_server import db
+    active = db.execute_query("SELECT category, keywords FROM mission_focus WHERE is_active = TRUE", fetch=True)
+    
+    if not active:
+        await update.message.reply_text("No active missions. The Agency is in general surveillance mode.")
+        return
+        
+    response = "📡 Current Active Missions:\n"
+    for m in active:
+        response += f"- {m['category']}: {', '.join(m['keywords'])}\n"
+    await update.message.reply_text(response)
 
 if __name__ == '__main__':
     if not TOKEN:
@@ -130,6 +165,8 @@ if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     
     app.add_handler(CommandHandler('start', start))
+    app.add_handler(CommandHandler('mission', set_mission))
+    app.add_handler(CommandHandler('missions_active', list_missions))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), voice.handle_message))
     
     logger.info("Telegram Tactical Voice bot starting...")
