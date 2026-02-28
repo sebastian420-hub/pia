@@ -1,6 +1,6 @@
 [project]
 name = "pia"
-version = "0.1.0"
+version = "0.6.0"
 description = "Personal Intelligence Agency (PIA) Core"
 dependencies = [
     "psycopg2-binary>=2.9.9",

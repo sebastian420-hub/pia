@@ -26,18 +26,19 @@ PIA is designed to answer, *"How does today's maritime anomaly in the Strait of 
 
 The repository is structured as a professional Python monorepo using the `src/` layout, separating the Python logic ("The Brain") from the SQL/Docker infrastructure ("The Body").
 
-### The Six-Layer Data Model
+### The Seven-Layer Data Model
 
-The intelligence flows upward through six layers within a custom-built **PostgreSQL 16** instance:
+The intelligence flows upward through seven layers within a custom-built **PostgreSQL 16** instance:
 
 | Layer | Name | Technology | Purpose |
 | :--- | :--- | :--- | :--- |
+| **Layer 0** | Mission Control | mission_focus | Dynamic re-tasking of the entire agency focus (Category/Keywords). |
 | **Layer 1** | Raw Telemetry | TimescaleDB | High-velocity time-series data (Flights, Seismic). |
 | **Layer 2** | Intelligence Records (UIR) | pgvector / PostGIS | The core spine. Indexed by Time, Space, and Meaning. |
-| **Layer 3** | Intelligence Clusters | DiskANN | Groupings of UIRs that represent evolving patterns or threats. |
-| **Layer 4** | Strategic Digests | - | Finished, readable intelligence reports. |
-| **Layer 5** | Knowledge Graph | Apache AGE | Cypher-queryable graph of Entities and their Relationships. |
-| **Layer 6** | Continuous Aggregates | TimescaleDB / pg_cron | Auto-refreshing materialized views for real-time dashboards. |
+| **Layer 3** | Intelligence Clusters | DiskANN | Groupings of UIRs representing evolving patterns. |
+| **Layer 4** | Strategic Digests | OpenRouter LLM | Finished, readable intelligence SITREPs. |
+| **Layer 5** | Knowledge Graph | Apache AGE | Cypher-queryable graph of Entities and Relationships. |
+| **Layer 6** | Continuous Aggregates | pg_cron | Auto-refreshing materialized views for real-time dashboards. |
 
 ### Repository Structure
 
@@ -54,6 +55,22 @@ pia-core/
 ├── pyproject.toml               # Python Dependency Management
 └── docker-compose.yml           # Service Orchestration
 ```
+
+---
+
+## ⚡ Core Features
+
+### 🧠 Parallel Analyst Swarm
+The "Brain" is a distributed cluster of Analyst Agents using `FOR UPDATE SKIP LOCKED` to process the analysis queue concurrently. This ensures high-volume intelligence bursts are fused in real-time without bottlenecks.
+
+### 🔍 Semantic Vector Resolution
+Moving beyond keyword matching, PIA uses **pgvector** and **OpenRouter LLMs** to perform conceptual entity resolution. It can link a description like *"The Hawthorne-based rocket manufacturer"* to the hardened entity *"SpaceX"* using 1536-dimensional vector similarity.
+
+### 🎯 Focus Mechanism (C2)
+The Director can re-task the entire Agency instantly. By setting a **Mission Focus** (e.g., TECH or FINANCE), the sensors automatically prioritize matching data and the brain focuses extraction on mission-relevant entities.
+
+### 📱 Tactical Voice (Telegram Interface)
+Command the Agency from your phone. The built-in Telegram bot acts as an **OpenClaw Reasoning Agent**, allowing you to perform spatial searches, graph traversals, and mission tasking via natural language while on the move.
 
 ---
 
@@ -106,4 +123,4 @@ Detailed architectural blueprints and implementation plans can be found in the `
 
 ---
 **Classification:** Open Source Vision Prototype  
-**Version:** 0.1.0 (Foundation)
+**Version:** 0.6.0 (Strategic Evolution)

@@ -22,6 +22,9 @@ lint:
 seed-geo:
 	powershell.exe -ExecutionPolicy Bypass -File scripts/seed_geo.ps1
 
+release:
+	python scripts/release.py $(version)
+
 clean:
 	docker compose down -v
 	rm -rf **/__pycache__

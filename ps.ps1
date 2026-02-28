@@ -34,8 +34,12 @@ switch ($Action) {
         docker compose down -v
         Get-ChildItem -Path . -Include __pycache__ -Recurse | Remove-Item -Recurse -Force
     }
+    "release" {
+        param($v)
+        python scripts/release.py $v
+    }
     Default {
         Write-Host "Unknown action: $Action" -ForegroundColor Red
-        Write-Host "Available: up, down, build, test, validate, seed-geo, logs, clean"
+        Write-Host "Available: up, down, build, test, validate, seed-geo, logs, clean, release"
     }
 }
