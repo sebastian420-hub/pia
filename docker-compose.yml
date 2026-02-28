@@ -64,7 +64,8 @@ services:
     build:
       context: .
       dockerfile: ./infra/agents/Dockerfile
-    container_name: analyst_agent
+    deploy:
+      replicas: 3
     restart: always
     volumes:
       - .:/app
@@ -74,6 +75,8 @@ services:
       - DB_USER=pia
       - DB_PASSWORD=password
       - DB_NAME=pia
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - LLM_MODEL=${LLM_MODEL}
     depends_on:
       pia_init:
         condition: service_completed_successfully

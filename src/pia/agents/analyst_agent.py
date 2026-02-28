@@ -16,48 +16,69 @@ class AnalystAgent(BaseAgent):
     def setup(self):
         self.db = DatabaseManager()
         self.nlp = NLPManager()
+        # Create a unique name for concurrency tracking
+        import socket
+        hostname = socket.gethostname()
+        self.name = f"analyst_{hostname}_{uuid.uuid4().hex[:6]}"
         logger.info(f"{self.name} initialized with NLP extraction brain.")
 
     def poll(self):
-        """Processes the oldest PENDING job in the analysis queue."""
-        # 1. Get the oldest pending job with full UIR context
-        job = self.db.execute_query("""
-            SELECT q.queue_id, q.uir_uid, u.geo, u.domain, u.priority, u.content_summary, u.content_raw
-            FROM analysis_queue q
-            JOIN intelligence_records u ON q.uir_uid = u.uid
-            WHERE q.status = 'PENDING' 
-            ORDER BY q.created_at ASC 
-            LIMIT 1
-        """, fetch=True)
+        """Processes the oldest PENDING job in the analysis queue using concurrency-safe locking."""
+        # Atomic claim: Find one PENDING job, lock it, and mark as PROCESSING in one step.
+        # This prevents 'Double Processing' when running multiple agents.
+        job_query = """
+            UPDATE analysis_queue
+            SET status = 'PROCESSING', 
+                processed_at = NOW(),
+                assigned_agent = %s
+            WHERE queue_id = (
+                SELECT q.queue_id
+                FROM analysis_queue q
+                WHERE q.status = 'PENDING'
+                ORDER BY q.priority = 'CRITICAL' DESC, q.created_at ASC
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            RETURNING queue_id, uir_uid;
+        """
+        
+        claimed = self.db.execute_query(job_query, (self.name,), fetch=True)
 
-        if not job:
+        if not claimed:
             return
 
-        job = job[0]
-        logger.info(f"Processing Job {job['queue_id']} for UIR {job['uir_uid']}")
+        job_id = claimed[0]['queue_id']
+        uir_uid = claimed[0]['uir_uid']
+        
+        # Fetch the full context for the claimed job
+        job_context = self.db.execute_query("""
+            SELECT u.uid, u.geo, u.domain, u.priority, u.content_summary, u.content_raw
+            FROM intelligence_records u
+            WHERE u.uid = %s
+        """, (uir_uid,), fetch=True)[0]
+
+        logger.info(f"Agent {self.name} claimed Job {job_id} for UIR {uir_uid}")
 
         try:
-            self.db.execute_query("UPDATE analysis_queue SET status = 'PROCESSING', processed_at = NOW() WHERE queue_id = %s", (job['queue_id'],))
-
             # --- SUB-TASK 1: Spatial reasoning ---
-            anchor_city = self.find_nearest_anchor(job['geo'])
-            cluster_id = self.correlate_and_cluster(job, anchor_city)
+            anchor_city = self.find_nearest_anchor(job_context['geo'])
+            cluster_id = self.correlate_and_cluster(job_context, anchor_city)
 
             # --- SUB-TASK 2: NLP Object Extraction ---
-            text_to_analyze = job['content_raw'] or job['content_summary'] or ""
+            text_to_analyze = job_context['content_raw'] or job_context['content_summary'] or ""
             intelligence_components = self.nlp.extract_intelligence(text_to_analyze)
 
             # --- SUB-TASK 3: Entity Resolution and Linking ---
-            resolved_entities = self.process_intelligence_components(job['uir_uid'], intelligence_components)
+            resolved_entities = self.process_intelligence_components(uir_uid, intelligence_components)
 
             # --- SUB-TASK 4: Relationship Inference & Graph Sync ---
             self.process_inferred_relationships(resolved_entities, intelligence_components.get('relationships', []))
 
             # Finalize job
-            self.db.execute_query("UPDATE intelligence_records SET cluster_id = %s WHERE uid = %s", (cluster_id, job['uir_uid']))
-            self.db.execute_query("UPDATE analysis_queue SET status = 'DONE', result_cluster = %s WHERE queue_id = %s", (cluster_id, job['queue_id']))
+            self.db.execute_query("UPDATE intelligence_records SET cluster_id = %s WHERE uid = %s", (cluster_id, uir_uid))
+            self.db.execute_query("UPDATE analysis_queue SET status = 'DONE', result_cluster = %s WHERE queue_id = %s", (cluster_id, job_id))
             
-            logger.success(f"Intelligence Fusion Complete for UIR {job['uir_uid']}")
+            logger.success(f"Intelligence Fusion Complete for UIR {uir_uid}")
 
         except Exception as e:
             logger.error(f"Fusion failed for job {job['queue_id']}: {e}")

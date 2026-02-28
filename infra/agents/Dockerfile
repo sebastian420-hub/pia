@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y libpq-dev gcc postgresql-client && rm -
 
 # Install Python dependencies
 COPY pyproject.toml .
-RUN pip install --no-cache-dir . pytest
+RUN pip install --no-cache-dir -e . 
 
 # Copy source code
 COPY src/ src/
