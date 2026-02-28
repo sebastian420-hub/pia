@@ -19,6 +19,18 @@ PIA does this by decoupling ingestion from analysis via a highly specialized dat
 
 ---
 
+## [BUSINESS] Licensing & Strategic Vision
+
+PIA Core follows an **Open-Core** model protected by the **Business Source License (BSL) 1.1**. 
+
+*   **Transparency First:** The foundational intelligence engine is public and audit-ready for government and corporate agencies.
+*   **Small-Scale Freedom:** Free for individuals, non-profits, and startups with less than $5M in annual revenue.
+*   **Enterprise Protection:** Use by large-scale agencies or commercial competitors requires a separate commercial license. 
+
+Our goal is to create the **Industry Standard for Autonomous Intelligence**. We provide the open "Brain," while selling proprietary "Nervous System" connectors and high-fidelity "Tactical Dashboards."
+
+---
+
 ## [SYSTEM] Architecture
 
 The repository is a professional Python monorepo separating logic (The Brain) from SQL/Docker infrastructure (The Body).
