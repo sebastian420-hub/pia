@@ -51,17 +51,22 @@ class NLPManager:
         3. Do not include any text before or after the JSON.
         """
 
-    def extract_intelligence(self, text: str) -> Dict:
+    def extract_intelligence(self, text: str, mission_context: str = None) -> Dict:
         """
         Sends text to the local LLM and returns structured intelligence components.
+        Injects optional mission focus context into the reasoning loop.
         """
         logger.debug(f"NLP: Processing intelligence extraction for text ({len(text)} chars)")
         
+        dynamic_system_prompt = self.system_prompt
+        if mission_context:
+            dynamic_system_prompt += f"\n\nCURRENT MISSION FOCUS: {mission_context}\nPrioritize entities and relationships relevant to this mission."
+
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": self.system_prompt},
+                    {"role": "system", "content": dynamic_system_prompt},
                     {"role": "user", "content": f"Analyze this intelligence report:\n\n{text}"}
                 ],
                 response_format={"type": "json_object"},
@@ -74,12 +79,31 @@ class NLPManager:
 
         except Exception as e:
             logger.error(f"NLP Extraction failed: {e}")
-            # Mock data for when LLM is unavailable to prevent test failure during skeleton build
+            # Mock data for when LLM is unavailable
             return {
                 "entities": [{"name": "SpaceX", "type": "ORGANIZATION"}], 
                 "relationships": [{"subject": "SpaceX", "predicate": "LOCATED_IN", "object": "Brownsville"}],
                 "summary": "Mock extraction used (LLM offline)"
             }
+
+    def generate_embedding(self, text: str) -> List[float]:
+        """
+        Generates a 1536-dimensional vector embedding for the given text.
+        Used for semantic search and entity resolution.
+        """
+        if not text:
+            return []
+            
+        try:
+            # We use the standard OpenAI embedding model via OpenRouter
+            response = self.client.embeddings.create(
+                model="openai/text-embedding-3-small",
+                input=text
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            logger.error(f"Embedding generation failed: {e}")
+            return []
 
 if __name__ == "__main__":
     nlp = NLPManager()

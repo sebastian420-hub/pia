@@ -52,21 +52,28 @@ class AnalystAgent(BaseAgent):
         
         # Fetch the full context for the claimed job
         job_context = self.db.execute_query("""
-            SELECT u.uid, u.geo, u.domain, u.priority, u.content_summary, u.content_raw
+            SELECT u.uid, u.geo, u.domain, u.priority, u.content_summary, u.content_raw, u.mission_id,
+                   m.category as mission_category, m.keywords as mission_keywords
             FROM intelligence_records u
+            LEFT JOIN mission_focus m ON u.mission_id = m.focus_id
             WHERE u.uid = %s
         """, (uir_uid,), fetch=True)[0]
 
-        logger.info(f"Agent {self.name} claimed Job {job_id} for UIR {uir_uid}")
+        logger.info(f"Agent {self.name} claimed Job {job_id} for UIR {uir_uid} {'[MISSION: ' + job_context['mission_category'] + ']' if job_context['mission_id'] else ''}")
 
         try:
             # --- SUB-TASK 1: Spatial reasoning ---
             anchor_city = self.find_nearest_anchor(job_context['geo'])
             cluster_id = self.correlate_and_cluster(job_context, anchor_city)
 
-            # --- SUB-TASK 2: NLP Object Extraction ---
+            # --- SUB-TASK 2: NLP Object Extraction (Mission-Aware) ---
             text_to_analyze = job_context['content_raw'] or job_context['content_summary'] or ""
-            intelligence_components = self.nlp.extract_intelligence(text_to_analyze)
+            
+            mission_str = None
+            if job_context['mission_id']:
+                mission_str = f"Category: {job_context['mission_category']}, Keywords: {', '.join(job_context['mission_keywords'] or [])}"
+
+            intelligence_components = self.nlp.extract_intelligence(text_to_analyze, mission_context=mission_str)
 
             # --- SUB-TASK 3: Entity Resolution and Linking ---
             resolved_entities = self.process_intelligence_components(uir_uid, intelligence_components)
@@ -85,39 +92,71 @@ class AnalystAgent(BaseAgent):
             self.db.execute_query("UPDATE analysis_queue SET status = 'FAILED', error_message = %s WHERE queue_id = %s", (str(e), job['queue_id']))
 
     def process_intelligence_components(self, uir_uid: str, components: Dict) -> Dict[str, str]:
-        """Resolves extracted names to database UUIDs and updates mention telemetry."""
+        """Resolves extracted names to database UUIDs using Semantic Disambiguation."""
         resolved_map = {} # Name -> UUID
         
         for ent in components.get('entities', []):
             name = ent['name']
             ent_type = ent['type']
+            best_eid = None
+            best_score = 0.0
             
-            # Resolution logic: Search by name or alias
-            entity = self.db.execute_query("""
-                SELECT entity_id FROM entities 
-                WHERE name ILIKE %s OR %s = ANY(aliases)
+            # 1. Generate Query Vector for this entity
+            query_vector = self.nlp.generate_embedding(name)
+            if not query_vector: continue
+
+            # 2. Candidate 1: Lexical Match (Exact or Alias)
+            lexical = self.db.execute_query("""
+                SELECT entity_id, name, (1 - (embedding <=> %s::vector)) as similarity
+                FROM entities 
+                WHERE (name ILIKE %s OR %s = ANY(aliases))
                 LIMIT 1
-            """, (name, name), fetch=True)
+            """, (query_vector, name, name), fetch=True)
             
-            if entity:
-                eid = entity[0]['entity_id']
-                resolved_map[name] = eid
-                # Update entity mention telemetry (Part IV of design)
+            if lexical and lexical[0]['similarity']:
+                best_eid = lexical[0]['entity_id']
+                best_score = lexical[0]['similarity']
+                logger.debug(f"Lexical Candidate: '{lexical[0]['name']}' (Score: {best_score:.2f})")
+
+            # 3. Candidate 2: Semantic Match (Nearest Neighbor of same type)
+            semantic = self.db.execute_query("""
+                SELECT entity_id, name, (1 - (embedding <=> %s::vector)) as similarity
+                FROM entities
+                WHERE embedding IS NOT NULL
+                AND entity_type = %s
+                ORDER BY embedding <=> %s::vector
+                LIMIT 1
+            """, (query_vector, ent_type, query_vector), fetch=True)
+            
+            if semantic:
+                s_eid = semantic[0]['entity_id']
+                s_score = semantic[0]['similarity']
+                logger.debug(f"Semantic Candidate: '{semantic[0]['name']}' (Score: {s_score:.2f})")
+                
+                # Tie-Breaker: If semantic match is significantly better, it wins
+                if s_score > best_score and s_score > 0.45:
+                    best_eid = s_eid
+                    best_score = s_score
+                    logger.debug(f"Disambiguation: Semantic match outranked Lexical match.")
+
+            # 4. Final Decision
+            if best_eid and best_score > 0.45:
+                resolved_map[name] = best_eid
                 self.db.execute_query("""
                     UPDATE entities 
                     SET mention_count = mention_count + 1,
                         uir_refs = array_append(uir_refs, %s),
                         last_seen = NOW()
                     WHERE entity_id = %s
-                """, (uir_uid, eid))
-                logger.debug(f"Linked UIR to existing entity: {name} ({eid})")
+                """, (uir_uid, best_eid))
+                logger.success(f"Resolved: '{name}' -> '{best_eid}' ({best_score:.2f})")
             else:
-                # Placeholder: Create a PENDING entity for future Wikidata resolution
+                # STAGE 3: Create new entity
                 new_ent = self.db.execute_query("""
-                    INSERT INTO entities (name, entity_type, mention_count, uir_refs, confidence)
-                    VALUES (%s, %s, 1, ARRAY[%s::uuid], 0.3)
+                    INSERT INTO entities (name, entity_type, mention_count, uir_refs, confidence, embedding)
+                    VALUES (%s, %s, 1, ARRAY[%s::uuid], 0.3, %s)
                     RETURNING entity_id
-                """, (name, ent_type, uir_uid), fetch=True)
+                """, (name, ent_type, uir_uid, query_vector), fetch=True)
                 resolved_map[name] = new_ent[0]['entity_id']
                 logger.debug(f"Created new PENDING entity: {name}")
         
