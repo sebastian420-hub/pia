@@ -61,36 +61,32 @@ class WikidataIngestor:
         count = 0
 
         with open(file_path, 'r', encoding='utf-8') as f_in:
-            with open(temp_buffer_path, 'w', encoding='utf-8') as f_out:
-                for line in f_in:
-                    parts = line.strip().split('\t')
-                    if len(parts) < 2:
-                        continue
-                    
-                    qid = parts[0]
-                    name = parts[1]
-                    desc = parts[2] if len(parts) > 2 else ""
-                    
-                    # 1. Plan Constraint: Filter noise (Must have label)
-                    if not name:
-                        continue
+            f_out = open(temp_buffer_path, 'w', encoding='utf-8')
+            for line in f_in:
+                parts = line.strip().split('\t')
+                if len(parts) < 2:
+                    continue
+                
+                qid = parts[0]
+                name = parts[1]
+                desc = parts[2] if len(parts) > 2 else ""
+                
+                if not name:
+                    continue
 
-                    # 2. Map to our entities schema format:
-                    # entity_type, name, aliases, description, metadata
-                    # We default to 'ORGANIZATION' for the general seed, to be refined by properties
-                    f_out.write(f"ORGANIZATION\t{name}\t{{}}\t{desc}\t{{\"wikidata_id\": \"{qid}\"}}\n")
-                    count += 1
+                f_out.write(f"ORGANIZATION\t{name}\t{{}}\t{desc}\t{{\"wikidata_id\": \"{qid}\"}}\n")
+                count += 1
 
-                    if count % batch_size == 0:
-                        self._flush_buffer(temp_buffer_path)
-                        logger.info(f"Ingested {count} entities...")
-                        # Reset the buffer file
-                        f_out.seek(0)
-                        f_out.truncate()
-
-                # Flush remaining
-                if count % batch_size != 0:
+                if count % batch_size == 0:
+                    f_out.close()
                     self._flush_buffer(temp_buffer_path)
+                    logger.info(f"Ingested {count} entities...")
+                    f_out = open(temp_buffer_path, 'w', encoding='utf-8')
+
+            f_out.close()
+            # Flush remaining
+            if count % batch_size != 0:
+                self._flush_buffer(temp_buffer_path)
         
         logger.success(f"Total entities ingested: {count}")
 
@@ -101,7 +97,7 @@ class WikidataIngestor:
             with open(buffer_path, 'r', encoding='utf-8') as f:
                 cur.copy_from(f, 'entities', sep='\t', 
                              columns=('entity_type', 'name', 'aliases', 'description', 'metadata'))
-        conn.commit()
+        # No need for manual commit if autocommit=True in DatabaseManager
 
     def ingest_relationships(self, file_path: str):
         """

@@ -14,12 +14,20 @@ class NLPManager:
     """
 
     def __init__(self):
-        # Local Kimi API configuration
-        self.api_key = os.getenv("LLM_API_KEY", "not-needed-for-local")
-        self.base_url = os.getenv("LLM_ENDPOINT", "http://localhost:8080/v1")
-        self.model = os.getenv("LLM_MODEL", "kimi-k2.5-int4")
+        # OpenRouter configuration (Standardized for the Brain)
+        self.api_key = os.getenv("OPENROUTER_API_KEY")
+        self.base_url = "https://openrouter.ai/api/v1"
+        self.model = os.getenv("LLM_MODEL", "z-ai/glm-4.5-air:free")
         
-        self.client = OpenAI(base_url=self.base_url, api_key=self.api_key)
+        # Configure client with OpenRouter headers
+        self.client = OpenAI(
+            base_url=self.base_url, 
+            api_key=self.api_key,
+            default_headers={
+                "HTTP-Referer": "https://github.com/google/gemini-cli", # Required by OpenRouter
+                "X-Title": "PIA-Core Intelligence Agent"
+            }
+        )
         
         # System prompt defined by Part IV of the Vision
         self.system_prompt = """
