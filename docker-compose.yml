@@ -119,6 +119,42 @@ services:
       pia_init:
         condition: service_completed_successfully
 
+  maritime_agent:
+    build:
+      context: .
+      dockerfile: ./infra/agents/Dockerfile
+    container_name: maritime_agent
+    restart: always
+    volumes:
+      - .:/app
+    command: ["python", "src/pia/agents/maritime_agent.py"]
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=pia
+      - DB_PASSWORD=password
+      - DB_NAME=pia
+    depends_on:
+      pia_init:
+        condition: service_completed_successfully
+
+  aviation_agent:
+    build:
+      context: .
+      dockerfile: ./infra/agents/Dockerfile
+    container_name: aviation_agent
+    restart: always
+    volumes:
+      - .:/app
+    command: ["python", "src/pia/agents/aviation_agent.py"]
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=pia
+      - DB_PASSWORD=password
+      - DB_NAME=pia
+    depends_on:
+      pia_init:
+        condition: service_completed_successfully
+
   mcp_server:
     build:
       context: .

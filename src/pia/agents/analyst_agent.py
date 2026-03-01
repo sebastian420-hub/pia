@@ -265,38 +265,60 @@ class AnalystAgent(BaseAgent):
         return results[0] if results else None
 
     def correlate_and_cluster(self, job, anchor_city) -> str:
-        """Finds an existing active cluster or creates a new one."""
+        """Finds an existing active cluster using Multi-Level Matching."""
         domain = job['domain']
         geo = job['geo']
+        content = (job['content_summary'] or job['content_headline'] or "").lower()
+        record_vector = self.nlp.generate_embedding(content)
         
-        city_name = anchor_city['name'] if anchor_city else "Unknown Location"
-        default_title = f"Active {domain} events near {city_name}"
-
-        if geo:
+        city_name = anchor_city['name'] if anchor_city else None
+        
+        # Determine the best match
+        cid = None
+        if geo and record_vector:
+            # LEVEL 1: High-Confidence Semantic Match
             existing = self.db.execute_query("""
                 SELECT cluster_id FROM intelligence_clusters
-                WHERE status = 'ACTIVE'
-                AND domain = %s
+                WHERE status = 'ACTIVE' AND domain = %s
                 AND ST_DWithin(geo_centroid, %s, 50000)
+                AND (1 - (semantic_dna <=> %s::vector)) > 0.35
                 LIMIT 1
-            """, (domain, geo), fetch=True)
-            
-            if existing:
-                cid = existing[0]['cluster_id']
-                self.db.execute_query("""
-                    UPDATE intelligence_clusters 
-                    SET updated_at = NOW(), uir_count = uir_count + 1
-                    WHERE cluster_id = %s
-                """, (cid,))
-                return cid
+            """, (domain, geo, record_vector), fetch=True)
+            if existing: cid = existing[0]['cluster_id']
 
+            # LEVEL 2: Mission-Spatial Fallback
+            if not cid and (job.get('mission_keywords') or job.get('mission_category')):
+                targets = [k.lower() for k in (job.get('mission_keywords') or [])]
+                if job.get('mission_category'): targets.append(job['mission_category'].lower())
+                
+                if any(t in content for t in targets):
+                    spatial = self.db.execute_query("""
+                        SELECT cluster_id FROM intelligence_clusters
+                        WHERE status = 'ACTIVE' AND domain = %s
+                        AND ST_DWithin(geo_centroid, %s, 50000)
+                        LIMIT 1
+                    """, (domain, geo), fetch=True)
+                    if spatial: cid = spatial[0]['cluster_id']
+
+        if cid:
+            self.db.execute_query("""
+                UPDATE intelligence_clusters 
+                SET updated_at = NOW(), uir_count = uir_count + 1
+                WHERE cluster_id = %s
+            """, (cid,))
+            return cid
+
+        # STAGE 3: Create new cluster
+        title = f"Situation: {domain} activity"
+        if city_name: title += f" near {city_name}"
+        
         new_cluster = self.db.execute_query("""
             INSERT INTO intelligence_clusters (
-                title, domain, status, priority, confidence, geo_centroid, uir_count
+                title, domain, status, priority, confidence, geo_centroid, uir_count, semantic_dna
             ) VALUES (
-                %s, %s, 'ACTIVE', %s, 0.7, %s, 1
+                %s, %s, 'ACTIVE', %s, 0.7, %s, 1, %s
             ) RETURNING cluster_id
-        """, (default_title, domain, job['priority'], geo), fetch=True)
+        """, (title, domain, job['priority'], geo, record_vector), fetch=True)
         
         return new_cluster[0]['cluster_id']
 
