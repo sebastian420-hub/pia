@@ -68,11 +68,14 @@ class DatabaseManager:
         Executes a Cypher query safely within Apache AGE.
         Automatically handles LOAD 'age' and search_path.
         """
-        # Pass the cypher query as a regular SQL parameter (%s) to avoid quoting issues.
+        # Apache AGE's cypher() function requires the query to be a string.
+        # We use dollar-quoting ($$...) to wrap the Cypher block.
+        # The caller MUST ensure names inside the cypher_query are escaped 
+        # using the _safe_cypher_name helper to prevent injection.
         setup_sql = f"LOAD 'age'; SET search_path = public, ag_catalog;"
-        full_query = f"{setup_sql} SELECT * FROM cypher(%s, %s) as (v agtype);"
+        full_query = f"{setup_sql} SELECT * FROM cypher(%s, $$ {cypher_query} $$) as (v agtype);"
         
-        return self.execute_query(full_query, (graph_name, cypher_query), fetch=True)
+        return self.execute_query(full_query, (graph_name,), fetch=True)
 
     def close(self):
         """Closes all connections in the pool."""
