@@ -105,6 +105,39 @@ class NLPManager:
             logger.error(f"Embedding generation failed: {e}")
             return []
 
+    def verify_fusion(self, entity_a: Dict, entity_b: Dict) -> bool:
+        """
+        Acts as a logic discriminator to decide if two entities are actually the same.
+        Used to prevent semantic collisions (e.g. Palm Beach vs Fairmont The Palm).
+        """
+        prompt = f"""
+        Decide if these two entity descriptions refer to the exact same real-world object.
+        
+        Entity A: {json.dumps(entity_a)}
+        Entity B: {json.dumps(entity_b)}
+        
+        Rules:
+        1. Consider name, type, and geographic context.
+        2. A city is NOT the same as a hotel.
+        3. If they are in different countries, they are NOT the same.
+        
+        Return ONLY a JSON object: {{"match": true/false, "reason": "short explanation"}}
+        """
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.0
+            )
+            decision = json.loads(response.choices[0].message.content)
+            logger.info(f"NLP Fusion Verification: {decision.get('match')} ({decision.get('reason')})")
+            return bool(decision.get('match'))
+        except Exception as e:
+            logger.error(f"Fusion verification failed: {e}")
+            return False
+
 if __name__ == "__main__":
     nlp = NLPManager()
     sample = "SpaceX launched a Falcon 9 rocket from Boca Chica, Texas today."
