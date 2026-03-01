@@ -114,4 +114,4 @@ make test # or ./ps.ps1 test
 
 ---
 **Classification:** Open Source Vision Prototype  
-**Version:** 0.6.0 (Strategic Evolution)
+**Version:** 0.7.0 (Precision Intelligence & Global Sensing)

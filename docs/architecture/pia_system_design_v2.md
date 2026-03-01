@@ -84,25 +84,20 @@ random_page_cost = 1.1                  # SSD-optimized
 ║  LAYER 6 — CONTINUOUS AGGREGATES (TimescaleDB auto-refresh)     ║
 ║  Pre-computed views: hourly summaries, domain activity, trends  ║
 ╠══════════════════════════════════════════════════════════════════╣
-║  LAYER 5 — KNOWLEDGE GRAPH (Phase 2)                            ║
-║  Apache AGE + entity/relationship tables                        ║
-║  "What do we know about X and who/what is connected to it?"     ║
+║  LAYER 5 — KNOWLEDGE GRAPH (Apache AGE)                         ║
+║  Entity graph with Multi-Factor Grounding & Enrichment          ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║  LAYER 4 — STRATEGIC DIGESTS                                    ║
-║  intelligence_digests                                           ║
-║  "What is the state of the world this week?"                    ║
+║  intelligence_digests + Source Authority weighting              ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║  LAYER 3 — INTELLIGENCE CLUSTERS                                ║
-║  intelligence_clusters + cluster_revisions (Phase 2)           ║
-║  "What connected patterns are developing?"                      ║
+║  Precision Fusion via Semantic-Spatial Gating (DNA)             ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║  LAYER 2 — INTELLIGENCE RECORDS (UIR)                           ║
-║  intelligence_records                                           ║
-║  "What exactly was collected?"                                  ║
+║  intelligence_records + global content_hash                     ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║  LAYER 1 — RAW TELEMETRY (TimescaleDB hypertables)              ║
-║  flight_tracks, satellite_positions, seismic_events             ║
-║  "Where was X at exactly what time?"                            ║
+║  Flights (ADS-B), Vessels (AIS), Seismic (USGS)                 ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 Supporting: analysis_queue (Phase 2 heartbeat)
