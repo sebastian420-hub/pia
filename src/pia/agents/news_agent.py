@@ -10,11 +10,12 @@ from pia.core.database import DatabaseManager
 class NewsAgent(BaseAgent):
     """Polls public RSS feeds for OSINT and ingests into PIA."""
     
-    # We use reliable news sources
+    # We use reliable news sources (Reuters moved to outbound feeds or section URLs)
     RSS_FEEDS = [
         "http://feeds.bbci.co.uk/news/world/rss.xml",
-        "https://www.reutersagency.com/feed/?best-topics=world-news&post_type=best",
-        "https://www.theverge.com/rss/index.xml" # Good for Tech focus
+        "https://www.aljazeera.com/xml/rss/all.xml",
+        "https://apnews.com/hub/world-news.rss",
+        "https://www.theverge.com/rss/index.xml"
     ]
 
     def setup(self):
@@ -22,10 +23,14 @@ class NewsAgent(BaseAgent):
         logger.info(f"{self.name} initialized database connection.")
 
     def poll(self):
+        # Use browser-like headers to bypass bot blocks
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
         for url in self.RSS_FEEDS:
             logger.debug(f"{self.name} polling RSS feed: {url}")
             try:
-                response = requests.get(url, timeout=10)
+                response = requests.get(url, timeout=15, headers=headers)
                 response.raise_for_status()
                 self.process_feed(response.content, url)
             except Exception as e:

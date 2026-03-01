@@ -181,6 +181,9 @@ services:
       dockerfile: ./infra/agents/Dockerfile
     container_name: telegram_voice
     restart: always
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
       - .:/app
     command: ["python", "src/pia/api/telegram_voice.py"]
