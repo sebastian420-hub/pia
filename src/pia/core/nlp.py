@@ -111,7 +111,8 @@ class NLPManager:
                     {"role": "user", "content": f"Analyze this intelligence report:\n\n{text}"}
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.1
+                temperature=0.1,
+                max_tokens=1000
             )
             
             structured_data = json.loads(response.choices[0].message.content)
