@@ -70,9 +70,11 @@ class NLPManager:
         if mission_category == 'FINANCIAL' or mission_category == 'TECH_FINANCE':
             dynamic_system_prompt += "\n\nLENS: FINANCIAL INVESTIGATION. \nPrioritize extracting venture capital investments, corporate alliances, shell companies, and key personnel (CEOs, Investors). \nALLOWED RELATIONSHIP PREDICATES: INVESTED_IN, ACQUIRED, SHORTING, SUPPLIES, LITIGATING_AGAINST, BOARD_MEMBER_OF, AFFILIATED_WITH, WORKS_FOR, FINANCES."
         elif mission_category == 'MILITARY':
-            dynamic_system_prompt += "\n\nLENS: TACTICAL THREAT BOARD. \nPrioritize extracting military units, weapon systems, troop movements, and geopolitical alliances. \nALLOWED RELATIONSHIP PREDICATES: AT_WAR_WITH, TARGETING, DEPLOYED_TO, COMMANDS, SANCTIONED_BY, ALLIED_WITH, OPERATES, AFFILIATED_WITH."
+            dynamic_system_prompt += "\n\nLENS: TACTICAL THREAT BOARD. \nPrioritize extracting military units, weapon systems, troop movements, and geopolitical alliances. \nALLOWED RELATIONSHIP PREDICATES: AT_WAR_WITH, ATTACKED, HOSTILE_TO, TARGETING, DEPLOYED_TO, COMMANDS, SANCTIONED_BY, ALLIED_WITH, OPERATES, AFFILIATED_WITH."
         else:
-            dynamic_system_prompt += "\n\nLENS: GENERAL INTELLIGENCE. \nALLOWED RELATIONSHIP PREDICATES: OWNS, WORKS_FOR, OPERATES, LOCATED_IN, AFFILIATED_WITH, ALLIED_WITH."
+            dynamic_system_prompt += "\n\nLENS: GENERAL INTELLIGENCE. \nALLOWED RELATIONSHIP PREDICATES: OWNS, WORKS_FOR, OPERATES, LOCATED_IN, AFFILIATED_WITH, ALLIED_WITH, HOSTILE_TO, ATTACKED."
+        
+        dynamic_system_prompt += "\n\nCRITICAL LOGIC GUARDRAIL: If the report describes an attack, strike, bombing, or hostile conflict, you MUST NOT use ALLIED_WITH or AFFILIATED_WITH. In these cases, you must use HOSTILE_TO or ATTACKED."
         
         if mission_keywords:
             dynamic_system_prompt += f"\n\nCURRENT MISSION KEYWORDS: {', '.join(mission_keywords)}\nEnsure you extract entities related to these keywords."

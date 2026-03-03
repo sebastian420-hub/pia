@@ -189,6 +189,7 @@ class AnalystAgent(BaseAgent):
         """Creates relationship records with Cross-Verification logic."""
         source_trust = context['source_trust']
         client_id = context.get('client_id', '00000000-0000-0000-0000-000000000000')
+        uir_uid = context['uid']
         
         for rel in relationships:
             sub_id = resolved_map.get(rel['subject'])
@@ -198,9 +199,9 @@ class AnalystAgent(BaseAgent):
             
             if sub_id and obj_id:
                 # CROSS-VERIFICATION LOGIC:
-                # 1. We check if this relationship exists from a DIFFERENT source FOR THIS CLIENT
+                # 1. We check if this relationship exists FOR THIS CLIENT
                 existing = self.db.execute_query("""
-                    SELECT relationship_id, confidence 
+                    SELECT relationship_id, confidence, evidence_uids 
                     FROM entity_relationships 
                     WHERE entity_a_id = %s AND entity_b_id = %s AND relationship_type = %s AND client_id = %s
                 """, (sub_id, obj_id, predicate, client_id), fetch=True)
@@ -208,24 +209,34 @@ class AnalystAgent(BaseAgent):
                 base_confidence = source_trust * 0.6 # Initial trust weighted by source
                 
                 if existing:
-                    # Relationship corroborated! Increase confidence based on source authority
-                    new_confidence = min(existing[0]['confidence'] + (source_trust * 0.2), 0.98)
+                    # Relationship corroborated!
+                    # Only add to evidence array if it's a new unique source hit
+                    e_uids = existing[0]['evidence_uids'] or []
+                    if str(uir_uid) not in [str(u) for u in e_uids]:
+                        e_uids.append(uir_uid)
+                        new_confidence = min(existing[0]['confidence'] + (source_trust * 0.2), 0.98)
+                    else:
+                        new_confidence = existing[0]['confidence']
+
                     self.db.execute_query("""
                         UPDATE entity_relationships 
                         SET last_confirmed = NOW(), 
                             confidence = %s,
                             mention_count = mention_count + 1,
+                            evidence_count = array_length(%s::uuid[], 1),
+                            evidence_uids = %s,
                             metadata = jsonb_set(COALESCE(metadata, '{}'), '{latest_reasoning}', %s)
                         WHERE relationship_id = %s
-                    """, (new_confidence, json.dumps(reasoning), existing[0]['relationship_id']))
+                    """, (new_confidence, e_uids, e_uids, json.dumps(reasoning), existing[0]['relationship_id']))
                     logger.info(f"Relationship Corroborated: confidence raised to {new_confidence:.2f}")
                 else:
                     # First time seeing this link
                     self.db.execute_query("""
                         INSERT INTO entity_relationships (
-                            entity_a_id, entity_b_id, relationship_type, confidence, mention_count, client_id, metadata
-                        ) VALUES (%s, %s, %s, %s, 1, %s, %s)
-                    """, (sub_id, obj_id, predicate, base_confidence, client_id, json.dumps({"reasoning": reasoning})))
+                            entity_a_id, entity_b_id, relationship_type, confidence, 
+                            mention_count, evidence_count, evidence_uids, client_id, metadata
+                        ) VALUES (%s, %s, %s, %s, 1, 1, ARRAY[%s::uuid], %s, %s)
+                    """, (sub_id, obj_id, predicate, base_confidence, uir_uid, client_id, json.dumps({"reasoning": reasoning})))
                 
                 # Sync to Graph only if confidence > 0.5
                 if (existing and new_confidence > 0.5) or (not existing and base_confidence > 0.5):
