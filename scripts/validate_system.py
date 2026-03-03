@@ -42,23 +42,25 @@ def main():
     if cur.fetchone()[0] is not None:
         logger.info("Schema already deployed. Skipping schema and seeding.")
     else:
-        sql_files = [
-            "01_setup_extensions.sql",
-            "02_layer1_telemetry.sql",
-            "03_layer2_uir_spine.sql",
-            "04_layer3_analytics.sql",
-            "05_layer5_knowledge_graph.sql",
-            "06_system_heartbeat.sql"
-        ]
+        # Discover and sort schema files automatically
+        sql_files = sorted([f for f in os.listdir(schema_dir) if f.endswith('.sql')])
 
         for f_name in sql_files:
             logger.info(f"Applying: {f_name}")
-            with open(os.path.join(schema_dir, f_name), 'r') as f:
+            with open(os.path.join(schema_dir, f_name), 'r', encoding='utf-8') as f:
                 cur.execute(f.read())
 
         logger.info("Step 3: Graph initialization...")
         cur.execute("LOAD 'age'; SET search_path = public, ag_catalog; SELECT create_graph('pia_graph');")
 
+        logger.info("Step 3.5: RLS Role Initialization...")
+        try:
+            cur.execute("CREATE ROLE pia_client LOGIN PASSWORD 'password'")
+            cur.execute("GRANT SELECT ON ALL TABLES IN SCHEMA public TO pia_client")
+            cur.execute("GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO pia_client")
+        except Exception as e:
+            logger.warning(f"Note: RLS role setup message: {e}")
+            
         logger.info("Step 4: Data seeding...")
         data_path = download_data()
         cur.execute("CREATE TEMP TABLE t_geo (geonameid INT, name TEXT, asciiname TEXT, alternatenames TEXT, latitude FLOAT, longitude FLOAT, feature_class TEXT, feature_code TEXT, country_code TEXT, cc2 TEXT, admin1 TEXT, admin2 TEXT, admin3 TEXT, admin4 TEXT, population BIGINT, elevation TEXT, dem TEXT, timezone TEXT, modification_date DATE);")

@@ -31,6 +31,7 @@ CREATE TABLE intelligence_records (
     content_headline  TEXT,
     content_summary   TEXT,
     content_raw       TEXT,
+    content_hash      TEXT UNIQUE,
 
     -- CLASSIFICATION TAXONOMY
     entities          TEXT[],
@@ -41,6 +42,7 @@ CREATE TABLE intelligence_records (
                           'PERSONNEL','UNKNOWN'
                       )),
     event_type        TEXT,
+    mission_id        UUID,
 
     -- GEOSPATIAL
     geo               GEOMETRY(Point, 4326),

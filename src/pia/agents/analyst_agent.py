@@ -79,7 +79,8 @@ class AnalystAgent(BaseAgent):
             intelligence_components = self.nlp.extract_intelligence(
                 text_to_analyze, 
                 mission_category=job_context.get('mission_category'),
-                mission_keywords=job_context.get('mission_keywords')
+                mission_keywords=job_context.get('mission_keywords'),
+                client_id=job_context.get('client_id')
             )
 
             # --- SUB-TASK 3: Entity Resolution and Linking ---

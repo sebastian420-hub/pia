@@ -25,14 +25,14 @@ def run_finance_e2e():
     h_news1 = hashlib.sha256(f"news1_{uuid.uuid4()}".encode()).hexdigest()
     db.execute_query("""
         INSERT INTO intelligence_records (source_type, source_agent, source_name, content_hash, content_headline, content_summary, domain, priority, geo, mission_id)
-        VALUES ('OSINT', 'financial_agent', 'WSJ Feed', %s, 'Venture Capitalist John Doe invests heavily in Acme Corp', 'Billionaire investor John Doe has successfully invested 50 million dollars in Acme Corp to fund their new AI division.', 'FINANCIAL', 'HIGH', ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)
+        VALUES ('OSINT', 'financial_agent', 'WSJ Feed', %s, 'Venture Capitalist John Doe invests heavily in Acme Corp', 'Billionaire investor John Doe has successfully invested 50 million dollars in Acme Corp to fund their new AI division.', 'FINANCIAL', 'CRITICAL', ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)
     """, (h_news1, lon, lat, mission_id))
     
     # 3. Inject OSINT (News about Affiliation / Friends)
     h_news2 = hashlib.sha256(f"news2_{uuid.uuid4()}".encode()).hexdigest()
     db.execute_query("""
         INSERT INTO intelligence_records (source_type, source_agent, source_name, content_hash, content_headline, content_summary, domain, priority, geo, mission_id)
-        VALUES ('OSINT', 'news_agent', 'Bloomberg', %s, 'Acme Corp forms strategic alliance with Globex', 'Acme Corp is now allied with Globex Corporation, and Acme Corp CEO Jane Smith works closely with them on infrastructure projects.', 'FINANCIAL', 'NORMAL', ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)
+        VALUES ('OSINT', 'news_agent', 'Bloomberg', %s, 'Acme Corp forms strategic alliance with Globex', 'Acme Corp is now allied with Globex Corporation, and Acme Corp CEO Jane Smith works closely with them on infrastructure projects.', 'FINANCIAL', 'CRITICAL', ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)
     """, (h_news2, lon + 0.01, lat + 0.01, mission_id))
 
     logger.info("Step 2-3: Financial signals injected. Waiting for Swarm Fusion and NLP Extraction...")

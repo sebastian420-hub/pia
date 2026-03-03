@@ -40,7 +40,12 @@ class NLPManager:
                 {"name": "string", "type": "PERSON|ORGANIZATION|VESSEL|AIRCRAFT|INFRASTRUCTURE", "role": "string"}
             ],
             "relationships": [
-                {"subject": "string", "predicate": "OWNS|WORKS_FOR|OPERATES|LOCATED_IN|AFFILIATED_WITH|FINANCES|INVESTED_IN|ALLIED_WITH", "object": "string"}
+                {
+                    "subject": "string", 
+                    "predicate": "MUST BE FROM ALLOWED LIST", 
+                    "object": "string",
+                    "reasoning": "A one-sentence logical justification explaining exactly why these two entities are connected based ONLY on the text provided."
+                }
             ],
             "summary": "one-sentence intelligence summary"
         }
@@ -49,25 +54,55 @@ class NLPManager:
         1. Be precise. If an entity is unclear, do not extract it.
         2. Normalize names (e.g., 'Boeing Corp' -> 'Boeing').
         3. Do not include any text before or after the JSON.
+        4. COGNITIVE GUARDRAIL: If your `reasoning` for a relationship requires you to assume facts not explicitly stated in the text, DO NOT extract the relationship.
         """
 
-    def extract_intelligence(self, text: str, mission_category: str = None, mission_keywords: list = None) -> Dict:
+    def extract_intelligence(self, text: str, mission_category: str = None, mission_keywords: list = None, client_id: str = None) -> Dict:
         """
         Sends text to the local LLM and returns structured intelligence components.
-        Injects dynamic prompt routing based on the client's mission category.
+        Injects dynamic prompt routing based on the client's mission category and historical feedback.
         """
         logger.debug(f"NLP: Processing intelligence extraction for text ({len(text)} chars)")
         
         dynamic_system_prompt = self.system_prompt
         
-        # DYNAMIC PROMPT ROUTING (The "Four Faces")
+        # DYNAMIC PROMPT ROUTING & ONTOLOGY EXPANSION (The "Four Faces")
         if mission_category == 'FINANCIAL' or mission_category == 'TECH_FINANCE':
-            dynamic_system_prompt += "\n\nLENS: FINANCIAL INVESTIGATION. Prioritize extracting venture capital investments, corporate alliances, shell companies, and key personnel (CEOs, Investors). Use predicates like INVESTED_IN, ACQUIRED, AFFILIATED_WITH, WORKS_FOR."
+            dynamic_system_prompt += "\n\nLENS: FINANCIAL INVESTIGATION. \nPrioritize extracting venture capital investments, corporate alliances, shell companies, and key personnel (CEOs, Investors). \nALLOWED RELATIONSHIP PREDICATES: INVESTED_IN, ACQUIRED, SHORTING, SUPPLIES, LITIGATING_AGAINST, BOARD_MEMBER_OF, AFFILIATED_WITH, WORKS_FOR, FINANCES."
         elif mission_category == 'MILITARY':
-            dynamic_system_prompt += "\n\nLENS: TACTICAL THREAT BOARD. Prioritize extracting military units, weapon systems, troop movements, and geopolitical alliances. Use predicates like DEPLOYED_TO, TARGETS, ALLIED_WITH, COMMANDS."
+            dynamic_system_prompt += "\n\nLENS: TACTICAL THREAT BOARD. \nPrioritize extracting military units, weapon systems, troop movements, and geopolitical alliances. \nALLOWED RELATIONSHIP PREDICATES: AT_WAR_WITH, TARGETING, DEPLOYED_TO, COMMANDS, SANCTIONED_BY, ALLIED_WITH, OPERATES, AFFILIATED_WITH."
+        else:
+            dynamic_system_prompt += "\n\nLENS: GENERAL INTELLIGENCE. \nALLOWED RELATIONSHIP PREDICATES: OWNS, WORKS_FOR, OPERATES, LOCATED_IN, AFFILIATED_WITH, ALLIED_WITH."
         
         if mission_keywords:
             dynamic_system_prompt += f"\n\nCURRENT MISSION KEYWORDS: {', '.join(mission_keywords)}\nEnsure you extract entities related to these keywords."
+
+        # HITL REINFORCEMENT LEARNING (Negative Few-Shot Injection)
+        if client_id:
+            try:
+                # We need a local DB instance to query feedback
+                from pia.core.database import DatabaseManager
+                db = DatabaseManager()
+                recent_rejections = db.execute_query("""
+                    SELECT original_subject, original_predicate, original_object, human_correction 
+                    FROM ai_feedback 
+                    WHERE client_id = %s AND feedback_type LIKE 'REJECTED%'
+                    ORDER BY created_at DESC LIMIT 5
+                """, (client_id,), fetch=True)
+                db.close()
+                
+                if recent_rejections:
+                    dynamic_system_prompt += "\n\nCRITICAL NEGATIVE EXAMPLES (Based on previous human feedback for this client):\nDO NOT make the following mistakes again:"
+                    for rej in recent_rejections:
+                        subj = rej.get('original_subject', '')
+                        pred = rej.get('original_predicate', '')
+                        obj = rej.get('original_object', '')
+                        corr = rej.get('human_correction', '')
+                        dynamic_system_prompt += f"\n- REJECTED: [{subj}] --{pred}--> [{obj}]"
+                        if corr:
+                            dynamic_system_prompt += f" (Reason: {corr})"
+            except Exception as e:
+                logger.warning(f"Could not load HITL feedback for client {client_id}: {e}")
 
         try:
             response = self.client.chat.completions.create(

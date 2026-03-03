@@ -25,21 +25,21 @@ def run_real_world_e2e():
     h_news1 = hashlib.sha256(f"news1_{uuid.uuid4()}".encode()).hexdigest()
     db.execute_query("""
         INSERT INTO intelligence_records (source_type, source_agent, source_name, content_hash, content_headline, content_summary, domain, priority, geo, mission_id)
-        VALUES ('OSINT', 'financial_agent', 'GeekWire', %s, 'OpenAI closes historic $110 billion funding round', 'On February 27, 2026, OpenAI closed a historic funding round. New major investors include Amazon, Nvidia, and SoftBank. Amazon is now the exclusive third-party cloud provider for OpenAI Frontier.', 'FINANCIAL', 'HIGH', ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)
+        VALUES ('OSINT', 'financial_agent', 'GeekWire', %s, 'OpenAI closes historic $110 billion funding round', 'On February 27, 2026, OpenAI closed a historic funding round. New major investors include Amazon, Nvidia, and SoftBank. Amazon is now the exclusive third-party cloud provider for OpenAI Frontier.', 'FINANCIAL', 'CRITICAL', ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)
     """, (h_news1, lon, lat, mission_id))
     
     # 3. Inject OSINT (Real News 2: Microsoft Partnership)
     h_news2 = hashlib.sha256(f"news2_{uuid.uuid4()}".encode()).hexdigest()
     db.execute_query("""
         INSERT INTO intelligence_records (source_type, source_agent, source_name, content_hash, content_headline, content_summary, domain, priority, geo, mission_id)
-        VALUES ('OSINT', 'news_agent', 'The Register', %s, 'Microsoft and OpenAI reassure market on core alliance', 'Despite capital from competitors, Microsoft Azure remains the exclusive cloud provider for all stateless OpenAI APIs, and Microsoft maintains a 27 percent stake in OpenAI.', 'FINANCIAL', 'NORMAL', ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)
+        VALUES ('OSINT', 'news_agent', 'The Register', %s, 'Microsoft and OpenAI reassure market on core alliance', 'Despite capital from competitors, Microsoft Azure remains the exclusive cloud provider for all stateless OpenAI APIs, and Microsoft maintains a 27 percent stake in OpenAI.', 'FINANCIAL', 'CRITICAL', ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)
     """, (h_news2, lon + 0.01, lat + 0.01, mission_id))
 
     # 4. Inject OSINT (Real News 3: Defense Deal)
     h_news3 = hashlib.sha256(f"news3_{uuid.uuid4()}".encode()).hexdigest()
     db.execute_query("""
         INSERT INTO intelligence_records (source_type, source_agent, source_name, content_hash, content_headline, content_summary, domain, priority, geo, mission_id)
-        VALUES ('OSINT', 'news_agent', 'TechCrunch', %s, 'Sam Altman signs Pentagon AI deal', 'OpenAI CEO Sam Altman announced a landmark agreement with the U.S. Department of Defense to deploy GPT models on classified networks.', 'MILITARY', 'HIGH', ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)
+        VALUES ('OSINT', 'news_agent', 'TechCrunch', %s, 'Sam Altman signs Pentagon AI deal', 'OpenAI CEO Sam Altman announced a landmark agreement with the U.S. Department of Defense to deploy GPT models on classified networks.', 'MILITARY', 'CRITICAL', ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s)
     """, (h_news3, lon - 0.01, lat - 0.01, mission_id))
 
     logger.info("Step 2-4: Real-world signals injected. Waiting for Swarm Fusion and NLP Extraction...")

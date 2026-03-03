@@ -54,6 +54,7 @@ CREATE TABLE entity_relationships (
     confidence        FLOAT NOT NULL CHECK (confidence BETWEEN 0.0 AND 1.0),
     evidence_uids     UUID[],
     evidence_count    INTEGER DEFAULT 0,
+    mention_count     INTEGER DEFAULT 1,
     first_observed    TIMESTAMPTZ DEFAULT NOW(),
     last_confirmed    TIMESTAMPTZ DEFAULT NOW(),
     still_valid       BOOLEAN DEFAULT TRUE,
