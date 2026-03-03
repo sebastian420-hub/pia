@@ -188,20 +188,22 @@ class AnalystAgent(BaseAgent):
     def process_inferred_relationships(self, resolved_map: Dict[str, str], relationships: List[Dict], context: Dict):
         """Creates relationship records with Cross-Verification logic."""
         source_trust = context['source_trust']
+        client_id = context.get('client_id', '00000000-0000-0000-0000-000000000000')
         
         for rel in relationships:
             sub_id = resolved_map.get(rel['subject'])
             obj_id = resolved_map.get(rel['object'])
             predicate = rel['predicate']
+            reasoning = rel.get('reasoning', 'No reasoning provided.')
             
             if sub_id and obj_id:
                 # CROSS-VERIFICATION LOGIC:
-                # 1. We check if this relationship exists from a DIFFERENT source
+                # 1. We check if this relationship exists from a DIFFERENT source FOR THIS CLIENT
                 existing = self.db.execute_query("""
-                    SELECT confidence, last_confirmed 
+                    SELECT relationship_id, confidence 
                     FROM entity_relationships 
-                    WHERE entity_a_id = %s AND entity_b_id = %s AND relationship_type = %s
-                """, (sub_id, obj_id, predicate), fetch=True)
+                    WHERE entity_a_id = %s AND entity_b_id = %s AND relationship_type = %s AND client_id = %s
+                """, (sub_id, obj_id, predicate, client_id), fetch=True)
 
                 base_confidence = source_trust * 0.6 # Initial trust weighted by source
                 
@@ -212,16 +214,18 @@ class AnalystAgent(BaseAgent):
                         UPDATE entity_relationships 
                         SET last_confirmed = NOW(), 
                             confidence = %s,
-                            mention_count = mention_count + 1
-                        WHERE entity_a_id = %s AND entity_b_id = %s AND relationship_type = %s
-                    """, (new_confidence, sub_id, obj_id, predicate))
+                            mention_count = mention_count + 1,
+                            metadata = jsonb_set(COALESCE(metadata, '{}'), '{latest_reasoning}', %s)
+                        WHERE relationship_id = %s
+                    """, (new_confidence, json.dumps(reasoning), existing[0]['relationship_id']))
                     logger.info(f"Relationship Corroborated: confidence raised to {new_confidence:.2f}")
                 else:
                     # First time seeing this link
                     self.db.execute_query("""
-                        INSERT INTO entity_relationships (entity_a_id, entity_b_id, relationship_type, confidence, mention_count)
-                        VALUES (%s, %s, %s, %s, 1)
-                    """, (sub_id, obj_id, predicate, base_confidence))
+                        INSERT INTO entity_relationships (
+                            entity_a_id, entity_b_id, relationship_type, confidence, mention_count, client_id, metadata
+                        ) VALUES (%s, %s, %s, %s, 1, %s, %s)
+                    """, (sub_id, obj_id, predicate, base_confidence, client_id, json.dumps({"reasoning": reasoning})))
                 
                 # Sync to Graph only if confidence > 0.5
                 if (existing and new_confidence > 0.5) or (not existing and base_confidence > 0.5):

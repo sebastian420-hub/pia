@@ -60,7 +60,12 @@ CREATE TABLE entity_relationships (
     still_valid       BOOLEAN DEFAULT TRUE,
     description       TEXT,
     embedding         VECTOR(1536),
-    UNIQUE (entity_a_id, entity_b_id, relationship_type)
+    
+    -- MULTI-TENANCY & EXPLAINABILITY
+    client_id         UUID DEFAULT '00000000-0000-0000-0000-000000000000',
+    metadata          JSONB,
+
+    UNIQUE (entity_a_id, entity_b_id, relationship_type, client_id)
 );
 
 CREATE INDEX idx_rel_entity_a ON entity_relationships(entity_a_id);
