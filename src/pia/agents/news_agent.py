@@ -79,11 +79,12 @@ class NewsAgent(BaseAgent):
 
         # 3. MISSION FOCUS CHECK (The Lens)
         active_missions = self.db.execute_query(
-            "SELECT focus_id, keywords, target_entities FROM mission_focus WHERE is_active = TRUE", 
+            "SELECT focus_id, keywords, target_entities, client_id FROM mission_focus WHERE is_active = TRUE", 
             fetch=True
         )
         
         assigned_mission = None
+        assigned_client = '00000000-0000-0000-0000-000000000000'
         mission_match = False
         
         for mission in active_missions:
@@ -91,6 +92,7 @@ class NewsAgent(BaseAgent):
             targets = (mission['keywords'] or []) + (mission['target_entities'] or [])
             if any(t.lower() in normalized_content for t in targets):
                 assigned_mission = mission['focus_id']
+                assigned_client = mission['client_id']
                 mission_match = True
                 break
 
@@ -114,10 +116,10 @@ class NewsAgent(BaseAgent):
             """
             INSERT INTO intelligence_records (
                 source_type, source_agent, source_name, source_url, content_hash,
-                content_headline, content_summary, domain, priority, confidence, mission_id
+                content_headline, content_summary, domain, priority, confidence, mission_id, client_id
             ) VALUES (
                 'OSINT', %s, %s, %s, %s,
-                %s, %s, %s, %s, 0.70, %s
+                %s, %s, %s, %s, 0.70, %s, %s
             ) ON CONFLICT (content_hash) DO NOTHING;
             """,
             (
@@ -129,7 +131,8 @@ class NewsAgent(BaseAgent):
                 description,
                 domain,
                 priority,
-                assigned_mission
+                assigned_mission,
+                assigned_client
             )
         )
 

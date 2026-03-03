@@ -21,7 +21,8 @@ BEGIN
         domain,
         priority,
         status,
-        created_at
+        created_at,
+        client_id
     ) VALUES (
         NEW.uid,
         NEW.uid,
@@ -32,7 +33,8 @@ BEGIN
         NEW.domain,
         COALESCE(NEW.priority, 'NORMAL'),
         'PENDING',
-        NOW()
+        NOW(),
+        NEW.client_id
     );
 
     -- 2. Emit a real-time notification via pg_notify

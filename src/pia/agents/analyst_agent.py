@@ -51,7 +51,7 @@ class AnalystAgent(BaseAgent):
         
         # Fetch the full context for the claimed job, including source authority
         job_results = self.db.execute_query("""
-            SELECT u.uid, u.geo, u.domain, u.priority, u.content_summary, u.content_raw, u.mission_id,
+            SELECT u.uid, u.geo, u.domain, u.priority, u.content_summary, u.content_raw, u.mission_id, u.client_id,
                    u.source_name, COALESCE(s.trust_score, 0.5) as source_trust,
                    m.category as mission_category, m.keywords as mission_keywords
             FROM intelligence_records u
@@ -76,11 +76,11 @@ class AnalystAgent(BaseAgent):
             # --- SUB-TASK 2: NLP Object Extraction (Mission-Aware) ---
             text_to_analyze = job_context['content_raw'] or job_context['content_summary'] or ""
             
-            mission_str = None
-            if job_context['mission_id']:
-                mission_str = f"Category: {job_context['mission_category']}, Keywords: {', '.join(job_context['mission_keywords'] or [])}"
-
-            intelligence_components = self.nlp.extract_intelligence(text_to_analyze, mission_context=mission_str)
+            intelligence_components = self.nlp.extract_intelligence(
+                text_to_analyze, 
+                mission_category=job_context.get('mission_category'),
+                mission_keywords=job_context.get('mission_keywords')
+            )
 
             # --- SUB-TASK 3: Entity Resolution and Linking ---
             resolved_entities = self.process_intelligence_components(uir_uid, intelligence_components)
@@ -279,11 +279,11 @@ class AnalystAgent(BaseAgent):
             # LEVEL 1: High-Confidence Semantic Match
             existing = self.db.execute_query("""
                 SELECT cluster_id FROM intelligence_clusters
-                WHERE status = 'ACTIVE' AND domain = %s
+                WHERE status = 'ACTIVE' AND domain = %s AND client_id = %s
                 AND ST_DWithin(geo_centroid, %s, 50000)
                 AND (1 - (semantic_dna <=> %s::vector)) > 0.35
                 LIMIT 1
-            """, (domain, geo, record_vector), fetch=True)
+            """, (domain, job['client_id'], geo, record_vector), fetch=True)
             if existing: cid = existing[0]['cluster_id']
 
             # LEVEL 2: Mission-Spatial Fallback
@@ -294,10 +294,10 @@ class AnalystAgent(BaseAgent):
                 if any(t in content for t in targets):
                     spatial = self.db.execute_query("""
                         SELECT cluster_id FROM intelligence_clusters
-                        WHERE status = 'ACTIVE' AND domain = %s
+                        WHERE status = 'ACTIVE' AND domain = %s AND client_id = %s
                         AND ST_DWithin(geo_centroid, %s, 50000)
                         LIMIT 1
-                    """, (domain, geo), fetch=True)
+                    """, (domain, job['client_id'], geo), fetch=True)
                     if spatial: cid = spatial[0]['cluster_id']
 
         if cid:
@@ -314,11 +314,11 @@ class AnalystAgent(BaseAgent):
         
         new_cluster = self.db.execute_query("""
             INSERT INTO intelligence_clusters (
-                title, domain, status, priority, confidence, geo_centroid, uir_count, semantic_dna
+                title, domain, status, priority, confidence, geo_centroid, uir_count, semantic_dna, client_id
             ) VALUES (
-                %s, %s, 'ACTIVE', %s, 0.7, %s, 1, %s
+                %s, %s, 'ACTIVE', %s, 0.7, %s, 1, %s, %s
             ) RETURNING cluster_id
-        """, (title, domain, job['priority'], geo, record_vector), fetch=True)
+        """, (title, domain, job['priority'], geo, record_vector, job['client_id']), fetch=True)
         
         return new_cluster[0]['cluster_id']
 

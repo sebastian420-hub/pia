@@ -30,18 +30,26 @@ CREATE TABLE intelligence_clusters (
     source_types      TEXT[],
     key_entities      TEXT[],
     domains           TEXT[],
-    embedding         VECTOR(1536),
+    semantic_dna      VECTOR(1536),
     linked_clusters   UUID[],
     digest_id         UUID,
     correlation_method TEXT,
     analyst_notes     TEXT,
-    metadata          JSONB
+    metadata          JSONB,
+    
+    -- MULTI-TENANCY
+    client_id         UUID DEFAULT '00000000-0000-0000-0000-000000000000'
 );
+
+-- MULTI-TENANT ROW-LEVEL SECURITY
+ALTER TABLE intelligence_clusters ENABLE ROW LEVEL SECURITY;
+CREATE POLICY client_isolation_clusters ON intelligence_clusters 
+    USING (client_id = current_setting('app.current_client_id', true)::UUID OR client_id = '00000000-0000-0000-0000-000000000000');
 
 CREATE INDEX idx_cluster_centroid ON intelligence_clusters USING GIST(geo_centroid) WHERE geo_centroid IS NOT NULL;
 CREATE INDEX idx_cluster_bbox ON intelligence_clusters USING GIST(geo_bbox) WHERE geo_bbox IS NOT NULL;
 CREATE INDEX idx_cluster_status ON intelligence_clusters(status, priority, updated_at DESC);
-CREATE INDEX idx_cluster_embedding ON intelligence_clusters USING diskann(embedding vector_cosine_ops) WHERE embedding IS NOT NULL;
+CREATE INDEX idx_cluster_embedding ON intelligence_clusters USING diskann(semantic_dna vector_cosine_ops) WHERE semantic_dna IS NOT NULL;
 CREATE INDEX idx_cluster_domain ON intelligence_clusters(domain, cluster_type, updated_at DESC);
 
 -- Link UIRs to Clusters

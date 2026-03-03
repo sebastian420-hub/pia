@@ -61,8 +61,16 @@ CREATE TABLE intelligence_records (
     -- LIFECYCLE
     ttl               TIMESTAMPTZ,
     version           INTEGER DEFAULT 1,
-    metadata          JSONB
+    metadata          JSONB,
+    
+    -- MULTI-TENANCY
+    client_id         UUID DEFAULT '00000000-0000-0000-0000-000000000000'
 );
+
+-- MULTI-TENANT ROW-LEVEL SECURITY
+ALTER TABLE intelligence_records ENABLE ROW LEVEL SECURITY;
+CREATE POLICY client_isolation_records ON intelligence_records 
+    USING (client_id = current_setting('app.current_client_id', true)::UUID OR client_id = '00000000-0000-0000-0000-000000000000');
 
 -- INDEXES: Time + Space + Semantic simultaneously
 

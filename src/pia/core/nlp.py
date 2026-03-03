@@ -40,7 +40,7 @@ class NLPManager:
                 {"name": "string", "type": "PERSON|ORGANIZATION|VESSEL|AIRCRAFT|INFRASTRUCTURE", "role": "string"}
             ],
             "relationships": [
-                {"subject": "string", "predicate": "OWNS|WORKS_FOR|OPERATES|LOCATED_IN|AFFILIATED_WITH", "object": "string"}
+                {"subject": "string", "predicate": "OWNS|WORKS_FOR|OPERATES|LOCATED_IN|AFFILIATED_WITH|FINANCES|INVESTED_IN|ALLIED_WITH", "object": "string"}
             ],
             "summary": "one-sentence intelligence summary"
         }
@@ -51,16 +51,23 @@ class NLPManager:
         3. Do not include any text before or after the JSON.
         """
 
-    def extract_intelligence(self, text: str, mission_context: str = None) -> Dict:
+    def extract_intelligence(self, text: str, mission_category: str = None, mission_keywords: list = None) -> Dict:
         """
         Sends text to the local LLM and returns structured intelligence components.
-        Injects optional mission focus context into the reasoning loop.
+        Injects dynamic prompt routing based on the client's mission category.
         """
         logger.debug(f"NLP: Processing intelligence extraction for text ({len(text)} chars)")
         
         dynamic_system_prompt = self.system_prompt
-        if mission_context:
-            dynamic_system_prompt += f"\n\nCURRENT MISSION FOCUS: {mission_context}\nPrioritize entities and relationships relevant to this mission."
+        
+        # DYNAMIC PROMPT ROUTING (The "Four Faces")
+        if mission_category == 'FINANCIAL' or mission_category == 'TECH_FINANCE':
+            dynamic_system_prompt += "\n\nLENS: FINANCIAL INVESTIGATION. Prioritize extracting venture capital investments, corporate alliances, shell companies, and key personnel (CEOs, Investors). Use predicates like INVESTED_IN, ACQUIRED, AFFILIATED_WITH, WORKS_FOR."
+        elif mission_category == 'MILITARY':
+            dynamic_system_prompt += "\n\nLENS: TACTICAL THREAT BOARD. Prioritize extracting military units, weapon systems, troop movements, and geopolitical alliances. Use predicates like DEPLOYED_TO, TARGETS, ALLIED_WITH, COMMANDS."
+        
+        if mission_keywords:
+            dynamic_system_prompt += f"\n\nCURRENT MISSION KEYWORDS: {', '.join(mission_keywords)}\nEnsure you extract entities related to these keywords."
 
         try:
             response = self.client.chat.completions.create(

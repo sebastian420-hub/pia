@@ -136,7 +136,10 @@ CREATE TABLE analysis_queue (
     processed_at      TIMESTAMPTZ,
     result_uid        UUID,
     result_cluster    UUID,
-    error_message     TEXT
+    error_message     TEXT,
+    
+    -- MULTI-TENANCY
+    client_id         UUID DEFAULT '00000000-0000-0000-0000-000000000000'
 );
 CREATE INDEX idx_queue_pending ON analysis_queue(priority DESC, created_at ASC) WHERE status = 'PENDING';
 CREATE INDEX idx_queue_status ON analysis_queue(status, created_at DESC);
