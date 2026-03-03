@@ -86,10 +86,9 @@ class NLPManager:
                 recent_rejections = db.execute_query("""
                     SELECT original_subject, original_predicate, original_object, human_correction 
                     FROM ai_feedback 
-                    WHERE client_id = %s AND feedback_type LIKE 'REJECTED%'
+                    WHERE client_id = %s AND feedback_type LIKE 'REJECTED%%'
                     ORDER BY created_at DESC LIMIT 5
                 """, (client_id,), fetch=True)
-                db.close()
                 
                 if recent_rejections:
                     dynamic_system_prompt += "\n\nCRITICAL NEGATIVE EXAMPLES (Based on previous human feedback for this client):\nDO NOT make the following mistakes again:"
