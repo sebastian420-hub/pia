@@ -10,7 +10,7 @@ def download_data():
     if not os.path.exists(txt_path):
         logger.info("Downloading GeoNames dataset...")
         url = "https://download.geonames.org/export/dump/cities15000.zip"
-        r = requests.get(url)
+        r = requests.get(url, timeout=30)
         with open("cities.zip", 'wb') as f:
             f.write(r.content)
         with zipfile.ZipFile("cities.zip", 'r') as zip_ref:

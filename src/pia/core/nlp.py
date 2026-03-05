@@ -37,7 +37,7 @@ class NLPManager:
         Return ONLY a JSON object with the following structure:
         {
             "entities": [
-                {"name": "string", "type": "PERSON|ORGANIZATION|VESSEL|AIRCRAFT|INFRASTRUCTURE", "role": "string"}
+                {"name": "string", "type": "PERSON|ORGANIZATION|LOCATION|GPE|VESSEL|AIRCRAFT|INFRASTRUCTURE", "role": "string"}
             ],
             "relationships": [
                 {

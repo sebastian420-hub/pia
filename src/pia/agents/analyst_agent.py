@@ -210,10 +210,16 @@ class AnalystAgent(BaseAgent):
                 
                 if existing:
                     # Relationship corroborated!
-                    # Only add to evidence array if it's a new unique source hit
-                    e_uids = existing[0]['evidence_uids'] or []
-                    if str(uir_uid) not in [str(u) for u in e_uids]:
-                        e_uids.append(uir_uid)
+                    # Handle PG array returned as string vs list
+                    e_uids = existing[0]['evidence_uids']
+                    if isinstance(e_uids, str):
+                        # Convert {uuid1,uuid2} to list
+                        e_uids = e_uids.strip('{}').split(',') if e_uids != '{}' else []
+                    
+                    if not e_uids: e_uids = []
+                    
+                    if str(uir_uid) not in [str(u).strip() for u in e_uids]:
+                        e_uids.append(str(uir_uid))
                         new_confidence = min(existing[0]['confidence'] + (source_trust * 0.2), 0.98)
                     else:
                         new_confidence = existing[0]['confidence']
@@ -224,7 +230,7 @@ class AnalystAgent(BaseAgent):
                             confidence = %s,
                             mention_count = mention_count + 1,
                             evidence_count = array_length(%s::uuid[], 1),
-                            evidence_uids = %s,
+                            evidence_uids = %s::uuid[],
                             metadata = jsonb_set(COALESCE(metadata, '{}'), '{latest_reasoning}', %s)
                         WHERE relationship_id = %s
                     """, (new_confidence, e_uids, e_uids, json.dumps(reasoning), existing[0]['relationship_id']))

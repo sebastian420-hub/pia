@@ -8,7 +8,7 @@ CREATE TABLE entities (
     created_at        TIMESTAMPTZ DEFAULT NOW(),
     updated_at        TIMESTAMPTZ DEFAULT NOW(),
     entity_type       TEXT NOT NULL CHECK (entity_type IN (
-                          'PERSON','ORGANIZATION','LOCATION','VESSEL',
+                          'PERSON','ORGANIZATION','LOCATION','GPE','COUNTRY','VESSEL',
                           'AIRCRAFT','DOMAIN','INFRASTRUCTURE','EVENT'
                       )),
     name              TEXT NOT NULL,
