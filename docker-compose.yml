@@ -9,6 +9,7 @@ services:
       POSTGRES_USER: pia
       POSTGRES_PASSWORD: password
       POSTGRES_DB: pia
+      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "5432:5432"
     volumes:
@@ -199,6 +200,23 @@ services:
     depends_on:
       pia_init:
         condition: service_completed_successfully
+
+  api_bridge:
+    build:
+      context: ../pia-api
+      dockerfile: Dockerfile
+    container_name: pia_api_bridge
+    restart: always
+    ports:
+      - "8001:8001"
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=pia
+      - DB_PASSWORD=password
+      - DB_NAME=pia
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pia_pgdata:
