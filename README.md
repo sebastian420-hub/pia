@@ -52,17 +52,12 @@ The intelligence flows upward through seven layers within a custom **PostgreSQL 
 ### Repository Structure
 
 ```text
-pia-core/
-├── src/pia/                     # The Brain: Python App (Agents, Models, Core)
-├── database/                    # The Memory: SQL Artifacts (Schema, Seeds)
-│   ├── schema/                  # 01-06 SQL files defining the 7 layers
-│   └── seeds/                   # Foundational seed data (Geography)
-├── infra/                       # The Body: Infrastructure (Postgres, Agents)
-├── scripts/                     # The Tools: Orchestration & Release Scripts
-├── tests/                       # The Validation: Integration & Unit Tests
-├── docs/                        # The Ledger: Design Docs & Status Reports
-├── pyproject.toml               # Python Dependency Management
-└── docker-compose.yml           # Service Orchestration
+PIA_OIA/
+├── pia-core/                    # The Brain: Data Swarm & Knowledge Graph
+│   ├── src/pia/                 # Python App (Agents, Models, Core)
+│   └── database/                # The Memory: SQL Artifacts (Schema, Seeds)
+├── pia-api/                     # The Bridge: FastAPI Real-Time WebSocket Server
+└── pia-ui/                      # The Face: React/Cesium 3D Digital Twin
 ```
 
 ---
@@ -114,4 +109,4 @@ make test # or ./ps.ps1 test
 
 ---
 **Classification:** Open Source Vision Prototype  
-**Version:** 0.7.0 (Precision Intelligence & Global Sensing)
+**Version:** 0.8.0 (Visualization & User Experience)
