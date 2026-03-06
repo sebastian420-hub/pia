@@ -161,6 +161,18 @@ class AnalystAgent(BaseAgent):
             # 3. Final Decision
             if best_eid and best_score > 0.45:
                 resolved_map[name] = best_eid
+                
+                # Semantic Geo-Tagging Fallback
+                if not record_geo:
+                    entity_geo = self.db.execute_query("SELECT primary_geo FROM entities WHERE entity_id = %s", (best_eid,), fetch=True)
+                    if entity_geo and entity_geo[0]['primary_geo']:
+                        self.db.execute_query(
+                            "UPDATE intelligence_records SET geo = %s WHERE uid = %s", 
+                            (entity_geo[0]['primary_geo'], uir_uid)
+                        )
+                        record_geo = entity_geo[0]['primary_geo']
+                        logger.success(f"Semantic Geo-Tagging applied: Anchored record {uir_uid} to entity {best_eid}")
+
                 self.db.execute_query("""
                     UPDATE entities 
                     SET mention_count = mention_count + 1,
