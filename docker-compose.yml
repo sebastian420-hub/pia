@@ -214,6 +214,8 @@ services:
       - DB_USER=pia
       - DB_PASSWORD=password
       - DB_NAME=pia
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - LLM_MODEL=${LLM_MODEL}
     depends_on:
       postgres:
         condition: service_healthy
