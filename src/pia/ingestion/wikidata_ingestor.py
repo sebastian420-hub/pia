@@ -92,11 +92,11 @@ class WikidataIngestor:
 
     def _flush_buffer(self, buffer_path: str):
         """Executes the PostgreSQL COPY command for the current buffer."""
-        conn = self.db.get_connection()
-        with conn.cursor() as cur:
-            with open(buffer_path, 'r', encoding='utf-8') as f:
-                cur.copy_from(f, 'entities', sep='\t', 
-                             columns=('entity_type', 'name', 'aliases', 'description', 'metadata'))
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                with open(buffer_path, 'r', encoding='utf-8') as f:
+                    cur.copy_from(f, 'entities', sep='\t', 
+                                 columns=('entity_type', 'name', 'aliases', 'description', 'metadata'))
         # No need for manual commit if autocommit=True in DatabaseManager
 
     def ingest_relationships(self, file_path: str):
@@ -150,11 +150,11 @@ class WikidataIngestor:
             AND b.metadata->>'wikidata_id' = %s
             ON CONFLICT DO NOTHING;
         """
-        conn = self.db.get_connection()
-        with conn.cursor() as cur:
-            for sub_qid, obj_qid, rel_type in batch:
-                cur.execute(query, (rel_type, sub_qid, obj_qid))
-        conn.commit()
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                for sub_qid, obj_qid, rel_type in batch:
+                    cur.execute(query, (rel_type, sub_qid, obj_qid))
+            conn.commit()
 
     def _safe_cypher_name(self, name: str) -> str:
         """Escapes double quotes in entity names for safe Cypher injection."""

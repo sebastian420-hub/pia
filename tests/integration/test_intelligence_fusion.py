@@ -1,6 +1,7 @@
 import pytest
 import uuid
 import time
+from unittest.mock import patch
 from pia.core.database import DatabaseManager
 from pia.agents.analyst_agent import AnalystAgent
 
@@ -43,10 +44,24 @@ def test_intelligence_fusion_e2e(db):
     time.sleep(1)
     
     # 3. Manually run one cycle of the Analyst Agent
-    agent = AnalystAgent(name="test_fusion_brain")
-    agent.setup()
-    agent.poll() # This should process our injected signal
-    agent.stop()
+    with patch("pia.core.nlp.NLPManager.extract_intelligence") as mock_extract:
+        mock_extract.return_value = {
+            "entities": [
+                {"name": "SpaceX", "type": "ORGANIZATION"}
+            ],
+            "relationships": [
+                {"subject": "SpaceX", "predicate": "LOCATED_IN", "object": "Brownsville", "reasoning": "Mocked test reasoning"}
+            ],
+            "summary": "Mocked summary"
+        }
+        
+        agent = AnalystAgent(name="test_fusion_brain")
+        agent.setup()
+        agent.poll() # This should process our injected signal
+        agent.stop() # This closes the database pool
+
+    # Re-initialize pool to perform verifications
+    db._initialize_pool()
     
     # 4. VERIFICATION A: Spatial & Clustering
     # Check if cluster was created near Brownsville
@@ -73,8 +88,6 @@ def test_intelligence_fusion_e2e(db):
             RETURN b.name
         $$) as (city agtype);
     """
-    # Note: This might fail if LLM extraction is unavailable, 
-    # but the logic is now verified.
     try:
         graph_results = db.execute_query(f"LOAD 'age'; SET search_path = public, ag_catalog; {cypher}", fetch=True)
         assert len(graph_results) > 0, "Graph relationship missing."

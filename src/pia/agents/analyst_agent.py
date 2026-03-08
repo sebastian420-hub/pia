@@ -89,8 +89,15 @@ class AnalystAgent(BaseAgent):
             # --- SUB-TASK 4: Relationship Inference & Graph Sync ---
             self.process_inferred_relationships(resolved_entities, intelligence_components.get('relationships', []), job_context)
 
+            # Extract entity names to save back to the UIR
+            extracted_entity_names = list(resolved_entities.keys())
+
             # Finalize job
-            self.db.execute_query("UPDATE intelligence_records SET cluster_id = %s WHERE uid = %s", (cluster_id, uir_uid))
+            self.db.execute_query("""
+                UPDATE intelligence_records 
+                SET cluster_id = %s, entities = %s 
+                WHERE uid = %s
+            """, (cluster_id, extracted_entity_names, uir_uid))
             self.db.execute_query("UPDATE analysis_queue SET status = 'DONE', result_cluster = %s WHERE queue_id = %s", (cluster_id, job_id))
             
             logger.success(f"Intelligence Fusion Complete for UIR {uir_uid}")
@@ -110,6 +117,11 @@ class AnalystAgent(BaseAgent):
         for ent in components.get('entities', []):
             name = ent['name']
             ent_type = ent['type']
+            
+            # Map restricted types to allowed types
+            if ent_type == 'GPE':
+                ent_type = 'LOCATION'
+                
             best_eid = None
             best_score = 0.0
             
@@ -129,22 +141,36 @@ class AnalystAgent(BaseAgent):
                 best_score = lexical[0]['similarity']
 
             # 2. Candidate 2: Semantic Match (Nearest Neighbor)
-            semantic = self.db.execute_query("""
-                SELECT entity_id, name, entity_type, (1 - (embedding <=> %s::vector)) as similarity,
-                       ST_Distance(primary_geo, %s) as distance_meters
-                FROM entities
-                WHERE embedding IS NOT NULL
-                AND entity_type = %s
-                ORDER BY embedding <=> %s::vector
-                LIMIT 1
-            """, (query_vector, record_geo, ent_type, query_vector), fetch=True)
-            
+            # FIX: If record_geo is null, we bypass ST_Distance entirely to prevent DB errors
+            if record_geo:
+                semantic = self.db.execute_query("""
+                    SELECT entity_id, name, entity_type, (1 - (embedding <=> %s::vector)) as similarity,
+                           ST_Distance(primary_geo, %s) as distance_meters
+                    FROM entities
+                    WHERE embedding IS NOT NULL
+                    AND entity_type = %s
+                    ORDER BY embedding <=> %s::vector
+                    LIMIT 1
+                """, (query_vector, record_geo, ent_type, query_vector), fetch=True)
+            else:
+                semantic = self.db.execute_query("""
+                    SELECT entity_id, name, entity_type, (1 - (embedding <=> %s::vector)) as similarity,
+                           NULL as distance_meters
+                    FROM entities
+                    WHERE embedding IS NOT NULL
+                    AND entity_type = %s
+                    ORDER BY embedding <=> %s::vector
+                    LIMIT 1
+                """, (query_vector, ent_type, query_vector), fetch=True)
+
             if semantic:
                 s_cand = semantic[0]
                 s_score = s_cand['similarity']
                 
-                # Physics Guardrail
-                is_far = s_cand['distance_meters'] and s_cand['distance_meters'] > 100000 
+                # Physics Guardrail (Only applies if we have a geo constraint)
+                is_far = False
+                if s_cand['distance_meters'] and s_cand['distance_meters'] > 100000:
+                    is_far = True
                 
                 # Logic Tie-Breaker
                 if s_score > 0.45 and not is_far:

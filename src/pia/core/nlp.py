@@ -37,7 +37,7 @@ class NLPManager:
         Return ONLY a JSON object with the following structure:
         {
             "entities": [
-                {"name": "string", "type": "PERSON|ORGANIZATION|LOCATION|GPE|VESSEL|AIRCRAFT|INFRASTRUCTURE", "role": "string"}
+                {"name": "string", "type": "PERSON|ORGANIZATION|LOCATION|VESSEL|AIRCRAFT|INFRASTRUCTURE", "role": "string"}
             ],
             "relationships": [
                 {
@@ -55,6 +55,7 @@ class NLPManager:
         2. Normalize names (e.g., 'Boeing Corp' -> 'Boeing').
         3. Do not include any text before or after the JSON.
         4. COGNITIVE GUARDRAIL: If your `reasoning` for a relationship requires you to assume facts not explicitly stated in the text, DO NOT extract the relationship.
+        5. ENTITY FILTER: DO NOT extract generic category names as entities (e.g., 'Vessel', 'Ship', 'Person', 'Company', 'Official', 'Organization'). Only extract specific, proper names of real-world objects or individuals.
         """
 
     def extract_intelligence(self, text: str, mission_category: str = None, mission_keywords: list = None, client_id: str = None) -> Dict:
@@ -67,12 +68,14 @@ class NLPManager:
         dynamic_system_prompt = self.system_prompt
         
         # DYNAMIC PROMPT ROUTING & ONTOLOGY EXPANSION (The "Four Faces")
+        dynamic_system_prompt += "\n\nONTOLOGY FILTER: STRICTLY EXCLUDE sports, entertainment, and pop-culture entities (e.g., 'Lionel Messi', 'Taylor Swift', 'FIFA') unless they are explicitly involved in geopolitical, financial, or military events. This is a security-focused intelligence graph."
+
         if mission_category == 'FINANCIAL' or mission_category == 'TECH_FINANCE':
-            dynamic_system_prompt += "\n\nLENS: FINANCIAL INVESTIGATION. \nPrioritize extracting venture capital investments, corporate alliances, shell companies, and key personnel (CEOs, Investors). \nALLOWED RELATIONSHIP PREDICATES: INVESTED_IN, ACQUIRED, SHORTING, SUPPLIES, LITIGATING_AGAINST, BOARD_MEMBER_OF, AFFILIATED_WITH, WORKS_FOR, FINANCES."
+            dynamic_system_prompt += "\n\nLENS: FINANCIAL INVESTIGATION. \nPrioritize extracting venture capital investments, corporate alliances, shell companies, and key personnel (CEOs, Investors). \nALLOWED RELATIONSHIP PREDICATES: INVESTED_IN, ACQUIRED, SHORTING, SUPPLIES, LITIGATING_AGAINST, BOARD_MEMBER_OF, AFFILIATED_WITH, WORKS_FOR, FINANCES, LOBBIED_BY, FUNDED_BY, SUED_BY, MANUFACTURES, REGULATES, SUBSIDIARY_OF, EXECUTIVE_OF."
         elif mission_category == 'MILITARY':
-            dynamic_system_prompt += "\n\nLENS: TACTICAL THREAT BOARD. \nPrioritize extracting military units, weapon systems, troop movements, and geopolitical alliances. \nALLOWED RELATIONSHIP PREDICATES: AT_WAR_WITH, ATTACKED, HOSTILE_TO, TARGETING, DEPLOYED_TO, COMMANDS, SANCTIONED_BY, ALLIED_WITH, OPERATES, AFFILIATED_WITH."
+            dynamic_system_prompt += "\n\nLENS: TACTICAL THREAT BOARD. \nPrioritize extracting military units, weapon systems, troop movements, and geopolitical alliances. \nALLOWED RELATIONSHIP PREDICATES: AT_WAR_WITH, ATTACKED, HOSTILE_TO, TARGETING, DEPLOYED_TO, COMMANDS, SANCTIONED_BY, ALLIED_WITH, OPERATES, AFFILIATED_WITH, SUPPLIED_ARMS_TO, TRAINED_BY, OCCUPYING, DEFENDING, BOMBED."
         else:
-            dynamic_system_prompt += "\n\nLENS: GENERAL INTELLIGENCE. \nALLOWED RELATIONSHIP PREDICATES: OWNS, WORKS_FOR, OPERATES, LOCATED_IN, AFFILIATED_WITH, ALLIED_WITH, HOSTILE_TO, ATTACKED."
+            dynamic_system_prompt += "\n\nLENS: GENERAL INTELLIGENCE. \nALLOWED RELATIONSHIP PREDICATES: OWNS, WORKS_FOR, OPERATES, LOCATED_IN, AFFILIATED_WITH, ALLIED_WITH, HOSTILE_TO, ATTACKED, FOUNDED_BY, BORN_IN, SPOKEN_AT, CRITICIZED, SUPPORTED."
         
         dynamic_system_prompt += "\n\nCRITICAL LOGIC GUARDRAIL: If the report describes an attack, strike, bombing, or hostile conflict, you MUST NOT use ALLIED_WITH or AFFILIATED_WITH. In these cases, you must use HOSTILE_TO or ATTACKED."
         
@@ -114,10 +117,20 @@ class NLPManager:
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.1,
-                max_tokens=1000
+                max_tokens=500
             )
             
-            structured_data = json.loads(response.choices[0].message.content)
+            content = response.choices[0].message.content
+            if not content:
+                raise ValueError("Empty response from LLM")
+
+            # Clean markdown code blocks if they exist
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+
+            structured_data = json.loads(content)
             logger.success(f"NLP: Successfully extracted {len(structured_data.get('entities', []))} entities")
             return structured_data
 
@@ -125,9 +138,9 @@ class NLPManager:
             logger.error(f"NLP Extraction failed: {e}")
             # Mock data for when LLM is unavailable
             return {
-                "entities": [{"name": "SpaceX", "type": "ORGANIZATION"}], 
-                "relationships": [{"subject": "SpaceX", "predicate": "LOCATED_IN", "object": "Brownsville"}],
-                "summary": "Mock extraction used (LLM offline)"
+                "entities": [], 
+                "relationships": [],
+                "summary": f"Extraction failed: {str(e)}"
             }
 
     def generate_embedding(self, text: str) -> List[float]:
