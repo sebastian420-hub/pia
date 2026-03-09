@@ -51,7 +51,7 @@ class AnalystAgent(BaseAgent):
         
         # Fetch the full context for the claimed job, including source authority
         job_results = self.db.execute_query("""
-            SELECT u.uid, u.geo, u.domain, u.priority, u.content_summary, u.content_raw, u.mission_id, u.client_id,
+            SELECT u.uid, u.geo, u.domain, u.priority, u.content_headline, u.content_summary, u.content_raw, u.mission_id, u.client_id,
                    u.source_name, COALESCE(s.trust_score, 0.5) as source_trust,
                    m.category as mission_category, m.keywords as mission_keywords
             FROM intelligence_records u
