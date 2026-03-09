@@ -236,6 +236,11 @@ class AnalystAgent(BaseAgent):
             predicate = rel['predicate']
             reasoning = rel.get('reasoning', 'No reasoning provided.')
             
+            # STRICT VERB VALIDATION (Anti-Hallucination Guardrail)
+            if predicate not in self.nlp.ALL_VALID_VERBS:
+                logger.warning(f"Dropping hallucinated relationship predicate: '{predicate}'")
+                continue
+            
             if sub_id and obj_id:
                 # CROSS-VERIFICATION LOGIC:
                 # 1. We check if this relationship exists FOR THIS CLIENT

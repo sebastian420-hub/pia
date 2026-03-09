@@ -14,6 +14,28 @@ class NLPManager:
     Handles entity extraction and relationship inference via local LLM.
     """
 
+    # Define global ontology of allowed verbs
+    ALLOWED_VERBS_FINANCIAL = [
+        "INVESTED_IN", "ACQUIRED", "SHORTING", "SUPPLIES", "LITIGATING_AGAINST", 
+        "BOARD_MEMBER_OF", "AFFILIATED_WITH", "WORKS_FOR", "FINANCES", "LOBBIED_BY", 
+        "FUNDED_BY", "SUED_BY", "MANUFACTURES", "REGULATES", "SUBSIDIARY_OF", "EXECUTIVE_OF"
+    ]
+    
+    ALLOWED_VERBS_MILITARY = [
+        "AT_WAR_WITH", "ATTACKED", "HOSTILE_TO", "TARGETING", "DEPLOYED_TO", 
+        "COMMANDS", "SANCTIONED_BY", "ALLIED_WITH", "OPERATES", "AFFILIATED_WITH", 
+        "SUPPLIED_ARMS_TO", "TRAINED_BY", "OCCUPYING", "DEFENDING", "BOMBED"
+    ]
+    
+    ALLOWED_VERBS_GENERAL = [
+        "OWNS", "WORKS_FOR", "OPERATES", "LOCATED_IN", "AFFILIATED_WITH", 
+        "ALLIED_WITH", "HOSTILE_TO", "ATTACKED", "FOUNDED_BY", "BORN_IN", 
+        "SPOKEN_AT", "CRITICIZED", "SUPPORTED"
+    ]
+    
+    # Combined set of all valid verbs for strict filtering
+    ALL_VALID_VERBS = set(ALLOWED_VERBS_FINANCIAL + ALLOWED_VERBS_MILITARY + ALLOWED_VERBS_GENERAL)
+
     def __init__(self):
         # OpenRouter configuration (Standardized for the Brain)
         self.api_key = os.getenv("OPENROUTER_API_KEY")
@@ -82,11 +104,14 @@ class NLPManager:
         dynamic_system_prompt += "\n\nONTOLOGY FILTER: STRICTLY EXCLUDE sports, entertainment, and pop-culture entities (e.g., 'Lionel Messi', 'Taylor Swift', 'FIFA') unless they are explicitly involved in geopolitical, financial, or military events. This is a security-focused intelligence graph."
 
         if mission_category == 'FINANCIAL' or mission_category == 'TECH_FINANCE':
-            dynamic_system_prompt += "\n\nLENS: FINANCIAL INVESTIGATION. \nPrioritize extracting venture capital investments, corporate alliances, shell companies, and key personnel (CEOs, Investors). \nALLOWED RELATIONSHIP PREDICATES: INVESTED_IN, ACQUIRED, SHORTING, SUPPLIES, LITIGATING_AGAINST, BOARD_MEMBER_OF, AFFILIATED_WITH, WORKS_FOR, FINANCES, LOBBIED_BY, FUNDED_BY, SUED_BY, MANUFACTURES, REGULATES, SUBSIDIARY_OF, EXECUTIVE_OF."
+            verbs = ", ".join(self.ALLOWED_VERBS_FINANCIAL)
+            dynamic_system_prompt += f"\n\nLENS: FINANCIAL INVESTIGATION. \nPrioritize extracting venture capital investments, corporate alliances, shell companies, and key personnel (CEOs, Investors). \nALLOWED RELATIONSHIP PREDICATES: {verbs}."
         elif mission_category == 'MILITARY':
-            dynamic_system_prompt += "\n\nLENS: TACTICAL THREAT BOARD. \nPrioritize extracting military units, weapon systems, troop movements, and geopolitical alliances. \nALLOWED RELATIONSHIP PREDICATES: AT_WAR_WITH, ATTACKED, HOSTILE_TO, TARGETING, DEPLOYED_TO, COMMANDS, SANCTIONED_BY, ALLIED_WITH, OPERATES, AFFILIATED_WITH, SUPPLIED_ARMS_TO, TRAINED_BY, OCCUPYING, DEFENDING, BOMBED."
+            verbs = ", ".join(self.ALLOWED_VERBS_MILITARY)
+            dynamic_system_prompt += f"\n\nLENS: TACTICAL THREAT BOARD. \nPrioritize extracting military units, weapon systems, troop movements, and geopolitical alliances. \nALLOWED RELATIONSHIP PREDICATES: {verbs}."
         else:
-            dynamic_system_prompt += "\n\nLENS: GENERAL INTELLIGENCE. \nALLOWED RELATIONSHIP PREDICATES: OWNS, WORKS_FOR, OPERATES, LOCATED_IN, AFFILIATED_WITH, ALLIED_WITH, HOSTILE_TO, ATTACKED, FOUNDED_BY, BORN_IN, SPOKEN_AT, CRITICIZED, SUPPORTED."
+            verbs = ", ".join(self.ALLOWED_VERBS_GENERAL)
+            dynamic_system_prompt += f"\n\nLENS: GENERAL INTELLIGENCE. \nALLOWED RELATIONSHIP PREDICATES: {verbs}."
         
         dynamic_system_prompt += "\n\nCRITICAL LOGIC GUARDRAIL: If the report describes an attack, strike, bombing, or hostile conflict, you MUST NOT use ALLIED_WITH or AFFILIATED_WITH. In these cases, you must use HOSTILE_TO or ATTACKED."
         
