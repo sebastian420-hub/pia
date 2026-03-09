@@ -33,8 +33,13 @@ class NLPManager:
         "SPOKEN_AT", "CRITICIZED", "SUPPORTED"
     ]
     
+    ALLOWED_VERBS_INVESTIGATIVE = [
+        "FLEW_ON", "VISITED_RESIDENCE", "PHOTOGRAPHED_WITH", "MENTIONED_IN_TESTIMONY", 
+        "EMPLOYED_BY", "FINANCED_BY", "SUBPOENAED", "ASSOCIATED_WITH", "LEGAL_COUNSEL_FOR"
+    ]
+    
     # Combined set of all valid verbs for strict filtering
-    ALL_VALID_VERBS = set(ALLOWED_VERBS_FINANCIAL + ALLOWED_VERBS_MILITARY + ALLOWED_VERBS_GENERAL)
+    ALL_VALID_VERBS = set(ALLOWED_VERBS_FINANCIAL + ALLOWED_VERBS_MILITARY + ALLOWED_VERBS_GENERAL + ALLOWED_VERBS_INVESTIGATIVE)
 
     def __init__(self):
         # OpenRouter configuration (Standardized for the Brain)

@@ -156,6 +156,25 @@ services:
       pia_init:
         condition: service_completed_successfully
 
+  document_agent:
+    build:
+      context: .
+      dockerfile: ./infra/agents/Dockerfile
+    container_name: document_agent
+    restart: always
+    volumes:
+      - .:/app
+      - ./data/documents:/app/data/documents
+    command: ["python", "src/pia/agents/document_agent.py"]
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=pia
+      - DB_PASSWORD=password
+      - DB_NAME=pia
+    depends_on:
+      pia_init:
+        condition: service_completed_successfully
+
   mcp_server:
     build:
       context: .
