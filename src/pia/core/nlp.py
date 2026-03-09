@@ -1,5 +1,6 @@
 import os
 import json
+import random
 from typing import List, Dict, Optional
 from openai import OpenAI
 from loguru import logger
@@ -17,7 +18,13 @@ class NLPManager:
         # OpenRouter configuration (Standardized for the Brain)
         self.api_key = os.getenv("OPENROUTER_API_KEY")
         self.base_url = "https://openrouter.ai/api/v1"
-        self.model = os.getenv("LLM_MODEL", "z-ai/glm-4.5-air:free")
+        
+        # Free Tier Model Rotation Pool to bypass strict rate limits
+        self.model_pool = [
+            "arcee-ai/trinity-large-preview:free",
+            "stepfun/step-3.5-flash:free",
+            "z-ai/glm-4.5-air:free"
+        ]
         
         # Configure client with OpenRouter headers
         self.client = OpenAI(
@@ -57,6 +64,10 @@ class NLPManager:
         4. COGNITIVE GUARDRAIL: If your `reasoning` for a relationship requires you to assume facts not explicitly stated in the text, DO NOT extract the relationship.
         5. ENTITY FILTER: DO NOT extract generic category names as entities (e.g., 'Vessel', 'Ship', 'Person', 'Company', 'Official', 'Organization'). Only extract specific, proper names of real-world objects or individuals.
         """
+
+    def _get_next_model(self) -> str:
+        """Returns a random model from the rotation pool to distribute load."""
+        return random.choice(self.model_pool)
 
     def extract_intelligence(self, text: str, mission_category: str = None, mission_keywords: list = None, client_id: str = None) -> Dict:
         """
@@ -108,14 +119,17 @@ class NLPManager:
             except Exception as e:
                 logger.warning(f"Could not load HITL feedback for client {client_id}: {e}")
 
+        selected_model = self._get_next_model()
+        logger.debug(f"NLP: Routing request to model: {selected_model}")
+
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=selected_model,
                 messages=[
                     {"role": "system", "content": dynamic_system_prompt},
                     {"role": "user", "content": f"Analyze this intelligence report:\n\n{text}"}
                 ],
-                response_format={"type": "json_object"},
+                # Removed strict JSON formatting to prevent 'response_format is not supported' errors from mixed providers
                 temperature=0.1,
                 max_tokens=500
             )
@@ -131,11 +145,11 @@ class NLPManager:
                 content = content.split("```")[1].split("```")[0].strip()
 
             structured_data = json.loads(content)
-            logger.success(f"NLP: Successfully extracted {len(structured_data.get('entities', []))} entities")
+            logger.success(f"NLP: Successfully extracted {len(structured_data.get('entities', []))} entities using {selected_model}")
             return structured_data
 
         except Exception as e:
-            logger.error(f"NLP Extraction failed: {e}")
+            logger.error(f"NLP Extraction failed with model {selected_model}: {e}")
             # Mock data for when LLM is unavailable
             return {
                 "entities": [], 
@@ -181,18 +195,27 @@ class NLPManager:
         Return ONLY a JSON object: {{"match": true/false, "reason": "short explanation"}}
         """
         
+        selected_model = self._get_next_model()
+        
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=selected_model,
                 messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
+                # Removed strict JSON formatting to prevent 'response_format is not supported' errors from mixed providers
                 temperature=0.0
             )
-            decision = json.loads(response.choices[0].message.content)
-            logger.info(f"NLP Fusion Verification: {decision.get('match')} ({decision.get('reason')})")
+            
+            content = response.choices[0].message.content
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+                
+            decision = json.loads(content)
+            logger.info(f"NLP Fusion Verification ({selected_model}): {decision.get('match')} ({decision.get('reason')})")
             return bool(decision.get('match'))
         except Exception as e:
-            logger.error(f"Fusion verification failed: {e}")
+            logger.error(f"Fusion verification failed with model {selected_model}: {e}")
             return False
 
 if __name__ == "__main__":

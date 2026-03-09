@@ -14,7 +14,7 @@ class NewsAgent(BaseAgent):
     RSS_FEEDS = [
         "http://feeds.bbci.co.uk/news/world/rss.xml",
         "https://www.aljazeera.com/xml/rss/all.xml",
-        "https://apnews.com/hub/world-news.rss",
+        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
         "https://www.theverge.com/rss/index.xml"
     ]
 
@@ -65,7 +65,8 @@ class NewsAgent(BaseAgent):
         import hashlib
         
         # 1. Content Normalization and Hash
-        normalized_content = (title + description).lower().strip()
+        safe_desc = description if description else ""
+        normalized_content = (title + " " + safe_desc).lower().strip()
         content_hash = hashlib.sha256(normalized_content.encode('utf-8')).hexdigest()
         
         # 2. Idempotency Check

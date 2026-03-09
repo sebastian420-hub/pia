@@ -43,18 +43,23 @@ class EnrichmentAgent(BaseAgent):
             json_format = '{"description": "...", "aliases": ["..."], "official_type": "..."}'
             prompt = f"Provide a one-sentence official description and a list of common aliases for the entity: '{name}' ({target['entity_type']}). Return ONLY a JSON object: {json_format}"
             
+            selected_model = self.nlp._get_next_model()
             enrichment_data = self.nlp.client.chat.completions.create(
-                model=self.nlp.model,
+                model=selected_model,
                 messages=[
                     {"role": "system", "content": "You are a Ground Truth Intelligence Agent. Provide accurate, official metadata for the given entity."},
                     {"role": "user", "content": prompt}
                 ],
-                response_format={"type": "json_object"},
                 temperature=0.0
             )
-            
-            data = json.loads(enrichment_data.choices[0].message.content)
-            
+
+            content = enrichment_data.choices[0].message.content
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+
+            data = json.loads(content)            
             # Step 2: Update the Knowledge Graph with 'Hardened' data
             self.db.execute_query("""
                 UPDATE entities
