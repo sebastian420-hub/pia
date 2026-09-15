@@ -1,7 +1,7 @@
 import os
 import json
 import random
-from typing import List, Dict
+from typing import List, Dict, Optional
 from openai import OpenAI
 from loguru import logger
 from dotenv import load_dotenv
@@ -47,33 +47,6 @@ class NLPManager:
     Handles entity extraction and relationship inference via local LLM.
     """
 
-    # Define global ontology of allowed verbs
-    ALLOWED_VERBS_FINANCIAL = [
-        "INVESTED_IN", "ACQUIRED", "SHORTING", "SUPPLIES", "LITIGATING_AGAINST", 
-        "BOARD_MEMBER_OF", "AFFILIATED_WITH", "WORKS_FOR", "FINANCES", "LOBBIED_BY", 
-        "FUNDED_BY", "SUED_BY", "MANUFACTURES", "REGULATES", "SUBSIDIARY_OF", "EXECUTIVE_OF"
-    ]
-    
-    ALLOWED_VERBS_MILITARY = [
-        "AT_WAR_WITH", "ATTACKED", "HOSTILE_TO", "TARGETING", "DEPLOYED_TO", 
-        "COMMANDS", "SANCTIONED_BY", "ALLIED_WITH", "OPERATES", "AFFILIATED_WITH", 
-        "SUPPLIED_ARMS_TO", "TRAINED_BY", "OCCUPYING", "DEFENDING", "BOMBED"
-    ]
-    
-    ALLOWED_VERBS_GENERAL = [
-        "OWNS", "WORKS_FOR", "OPERATES", "LOCATED_IN", "AFFILIATED_WITH", 
-        "ALLIED_WITH", "HOSTILE_TO", "ATTACKED", "FOUNDED_BY", "BORN_IN", 
-        "SPOKEN_AT", "CRITICIZED", "SUPPORTED"
-    ]
-    
-    ALLOWED_VERBS_INVESTIGATIVE = [
-        "FLEW_ON", "VISITED_RESIDENCE", "PHOTOGRAPHED_WITH", "MENTIONED_IN_TESTIMONY", 
-        "EMPLOYED_BY", "FINANCED_BY", "SUBPOENAED", "ASSOCIATED_WITH", "LEGAL_COUNSEL_FOR"
-    ]
-    
-    # Combined set of all valid verbs for strict filtering
-    ALL_VALID_VERBS = set(ALLOWED_VERBS_FINANCIAL + ALLOWED_VERBS_MILITARY + ALLOWED_VERBS_GENERAL + ALLOWED_VERBS_INVESTIGATIVE)
-
     def __init__(self):
         # OpenRouter configuration (Standardized for the Brain)
         self.api_key = os.getenv("OPENROUTER_API_KEY")
@@ -104,114 +77,93 @@ class NLPManager:
             }
         )
         
-        # System prompt defined by Part IV of the Vision
         self.system_prompt = """
-        You are a specialized Intelligence Extraction Agent for the Personal Intelligence Agency (PIA).
-        Your task is to analyze raw intelligence reports and extract structured entities and their relationships.
+You extract structured facts from one news article for a knowledge graph. Output ONLY a JSON object:
 
-        Return ONLY a JSON object with the following structure:
-        {
-            "entities": [
-                {"name": "string", "type": "PERSON|ORGANIZATION|LOCATION|VESSEL|AIRCRAFT|INFRASTRUCTURE", "role": "string"}
-            ],
-            "relationships": [
-                {
-                    "subject": "string", 
-                    "predicate": "MUST BE FROM ALLOWED LIST", 
-                    "object": "string",
-                    "reasoning": "A one-sentence logical justification explaining exactly why these two entities are connected based ONLY on the text provided."
-                }
-            ],
-            "summary": "one-sentence intelligence summary"
-        }
+{
+  "summary": "two sentences, neutral, no opinion",
+  "country_context": "country the story is mainly about, or null",
+  "mentions": [
+    {"surface": "exact string as written", "kind": "PERSON|ORG|COUNTRY|PLACE|VESSEL|AIRCRAFT|EVENT", "role": "ACTOR|TARGET|LOCATION|MENTIONED"}
+  ],
+  "events": [
+    {"actor": "surface from mentions", "action": "ONE OF THE ACTIONS BELOW", "target": "surface from mentions or null",
+     "location": "surface from mentions or null", "date": "YYYY-MM-DD or null", "precision": "day|month",
+     "quote": "the exact sentence from the article that states this", "confidence": 0.0-1.0}
+  ]
+}
 
-        Rules:
-        1. Be precise. If an entity is unclear, do not extract it.
-        2. Normalize names (e.g., 'Boeing Corp' -> 'Boeing').
-        3. Do not include any text before or after the JSON.
-        4. COGNITIVE GUARDRAIL: If your `reasoning` for a relationship requires you to assume facts not explicitly stated in the text, DO NOT extract the relationship.
-        5. ENTITY FILTER: DO NOT extract generic category names as entities (e.g., 'Vessel', 'Ship', 'Person', 'Company', 'Official', 'Organization'). Only extract specific, proper names of real-world objects or individuals.
-        """
+ACTIONS: STATEMENT, APPEAL, COOPERATE, MEET, AGREE, AID, VISIT, ACCUSE, REJECT, THREATEN, PROTEST, SANCTION,
+COERCE, ARREST, ATTACK, APPOINT, RESIGN, ELECT, ACQUIRE, INVEST, DEPLOY, DISASTER, OTHER
+
+Rules:
+1. Mentions are specific named things only: people, organisations, countries, places, ships, aircraft.
+   Never generic roles or groups ("the president", "officials", "protesters", "the army", "a pipeline").
+2. A capital or seat used as the government ("Beijing warned", "the Kremlin said") is the COUNTRY; write the
+   surface as in the text and kind COUNTRY.
+3. An event needs an actor that DID something to a target. Reporting, quoting or describing is not an event.
+   A journalist or outlet reporting is never an actor.
+4. Prefer a directed action with a target over STATEMENT: "X accused Y" → ACCUSE with target Y;
+   "X warned Y" → THREATEN; "X summoned Y's ambassador" → COERCE with target Y; "X sanctioned Y" → SANCTION.
+   Use STATEMENT only when the announcement itself is the news (a policy, a decision) and there is no target.
+5. When the target is a country's ship, aircraft, forces, embassy or government, the target is the COUNTRY.
+6. Entertainment, sport and awards are not events for this graph: skip them (0 events).
+7. Use the article's own words in "quote"; do not paraphrase. If the text does not state it, do not extract it.
+8. Prefer fewer, certain events over many doubtful ones. 0 events is a valid answer.
+9. Dates: use the publication date when the text says "today"/"yesterday" relative to it.
+"""
 
     def _get_next_model(self) -> str:
         """Returns a random model from the rotation pool to distribute load."""
         return random.choice(self.model_pool)
 
-    def extract_intelligence(self, text: str, mission_category: str = None, mission_keywords: list = None, client_id: str = None) -> Dict:
-        """
-        Sends text to the local LLM and returns structured intelligence components.
-        Injects dynamic prompt routing based on the client's mission category and historical feedback.
-        """
-        logger.debug(f"NLP: Processing intelligence extraction for text ({len(text)} chars)")
-        
-        dynamic_system_prompt = self.system_prompt
-        
-        # DYNAMIC PROMPT ROUTING & ONTOLOGY EXPANSION (The "Four Faces")
-        dynamic_system_prompt += "\n\nONTOLOGY FILTER: STRICTLY EXCLUDE sports, entertainment, and pop-culture entities (e.g., 'Lionel Messi', 'Taylor Swift', 'FIFA') unless they are explicitly involved in geopolitical, financial, or military events. This is a security-focused intelligence graph."
-
-        if mission_category == 'FINANCIAL' or mission_category == 'TECH_FINANCE':
-            verbs = ", ".join(self.ALLOWED_VERBS_FINANCIAL)
-            dynamic_system_prompt += f"\n\nLENS: FINANCIAL INVESTIGATION. \nPrioritize extracting venture capital investments, corporate alliances, shell companies, and key personnel (CEOs, Investors). \nALLOWED RELATIONSHIP PREDICATES: {verbs}."
-        elif mission_category == 'MILITARY':
-            verbs = ", ".join(self.ALLOWED_VERBS_MILITARY)
-            dynamic_system_prompt += f"\n\nLENS: TACTICAL THREAT BOARD. \nPrioritize extracting military units, weapon systems, troop movements, and geopolitical alliances. \nALLOWED RELATIONSHIP PREDICATES: {verbs}."
-        else:
-            verbs = ", ".join(self.ALLOWED_VERBS_GENERAL)
-            dynamic_system_prompt += f"\n\nLENS: GENERAL INTELLIGENCE. \nALLOWED RELATIONSHIP PREDICATES: {verbs}."
-        
-        dynamic_system_prompt += "\n\nCRITICAL LOGIC GUARDRAIL: If the report describes an attack, strike, bombing, or hostile conflict, you MUST NOT use ALLIED_WITH or AFFILIATED_WITH. In these cases, you must use HOSTILE_TO or ATTACKED."
-        
+    def extract_events(self, text: str, headline: str = "", published: str = "", outlet: str = "",
+                       mission_keywords: list = None) -> Dict:
+        """Full-article extraction: summary, mentions, events (see system prompt). Raises ExtractionError."""
+        prompt = self.system_prompt
         if mission_keywords:
-            dynamic_system_prompt += f"\n\nCURRENT MISSION KEYWORDS: {', '.join(mission_keywords)}\nEnsure you extract entities related to these keywords."
-
-        # HITL REINFORCEMENT LEARNING (Negative Few-Shot Injection)
-        if client_id:
-            try:
-                # We need a local DB instance to query feedback
-                from pia.core.database import DatabaseManager
-                db = DatabaseManager()
-                recent_rejections = db.execute_query("""
-                    SELECT original_subject, original_predicate, original_object, human_correction 
-                    FROM ai_feedback 
-                    WHERE client_id = %s AND feedback_type LIKE 'REJECTED%%'
-                    ORDER BY created_at DESC LIMIT 5
-                """, (client_id,), fetch=True)
-                
-                if recent_rejections:
-                    dynamic_system_prompt += "\n\nCRITICAL NEGATIVE EXAMPLES (Based on previous human feedback for this client):\nDO NOT make the following mistakes again:"
-                    for rej in recent_rejections:
-                        subj = rej.get('original_subject', '')
-                        pred = rej.get('original_predicate', '')
-                        obj = rej.get('original_object', '')
-                        corr = rej.get('human_correction', '')
-                        dynamic_system_prompt += f"\n- REJECTED: [{subj}] --{pred}--> [{obj}]"
-                        if corr:
-                            dynamic_system_prompt += f" (Reason: {corr})"
-            except Exception as e:
-                logger.warning(f"Could not load HITL feedback for client {client_id}: {e}")
-
+            prompt += f"\nThe agency is currently watching: {', '.join(mission_keywords)}. Do not invent mentions for them."
+        user = f"OUTLET: {outlet or 'unknown'}\nPUBLISHED: {published or 'unknown'}\nHEADLINE: {headline}\n\nARTICLE:\n{text[:12000]}"
         selected_model = self._get_next_model()
-        logger.debug(f"NLP: Routing request to model: {selected_model}")
-
         try:
             response = self.client.chat.completions.create(
                 model=selected_model,
-                messages=[
-                    {"role": "system", "content": dynamic_system_prompt},
-                    {"role": "user", "content": f"Analyze this intelligence report:\n\n{text}"}
-                ],
-                # No response_format: several free providers reject it.
+                messages=[{"role": "system", "content": prompt}, {"role": "user", "content": user}],
                 temperature=0.1,
-                max_tokens=self.max_output_tokens
+                max_tokens=self.max_output_tokens,
             )
         except Exception as e:
             raise ExtractionError(f"LLM call failed ({selected_model}): {e}") from e
+        data = parse_llm_json(response.choices[0].message.content)
+        data.setdefault("mentions", [])
+        data.setdefault("events", [])
+        data["mentions"] = [m for m in data["mentions"] if isinstance(m, dict) and m.get("surface")]
+        data["events"] = [e for e in data["events"] if isinstance(e, dict) and e.get("actor") and e.get("action")]
+        logger.success(f"NLP: {len(data['mentions'])} mentions, {len(data['events'])} events ({selected_model})")
+        return data
 
-        structured_data = parse_llm_json(response.choices[0].message.content)
-        structured_data.setdefault("entities", [])
-        structured_data.setdefault("relationships", [])
-        logger.success(f"NLP: Extracted {len(structured_data['entities'])} entities using {selected_model}")
-        return structured_data
+    def choose_candidate(self, surface: str, context: dict, candidates: List[Dict]) -> Optional[int]:
+        """Tie-break for identity resolution: returns the index of the right candidate, or None."""
+        lines = "\n".join(
+            f"{i}. {c['qid']} — {c.get('label')} — {c.get('description') or 'no description'}" for i, c in enumerate(candidates))
+        prompt = f"""An article mentions "{surface}". Which of these Wikidata items is it?
+Article headline: {context.get('headline', '')}
+Country context: {context.get('country_qid') or context.get('country_context') or 'unknown'}
+Sentence: {context.get('sentence', '')}
+
+Candidates:
+{lines}
+
+Answer ONLY with JSON: {{"index": <number>}} or {{"index": null}} if none of them fits."""
+        try:
+            response = self.client.chat.completions.create(
+                model=self._get_next_model(), messages=[{"role": "user", "content": prompt}], temperature=0.0, max_tokens=50)
+            data = parse_llm_json(response.choices[0].message.content)
+            idx = data.get("index")
+            return int(idx) if isinstance(idx, (int, float)) else None
+        except Exception as e:
+            logger.warning(f"choose_candidate failed: {e}")
+            return None
 
     def generate_embedding(self, text: str) -> List[float]:
         """
@@ -231,44 +183,3 @@ class NLPManager:
         except Exception as e:
             logger.error(f"Embedding generation failed: {e}")
             return []
-
-    def verify_fusion(self, entity_a: Dict, entity_b: Dict) -> bool:
-        """
-        Acts as a logic discriminator to decide if two entities are actually the same.
-        Used to prevent semantic collisions (e.g. Palm Beach vs Fairmont The Palm).
-        """
-        prompt = f"""
-        Decide if these two entity descriptions refer to the exact same real-world object.
-        
-        Entity A: {json.dumps(entity_a)}
-        Entity B: {json.dumps(entity_b)}
-        
-        Rules:
-        1. Consider name, type, and geographic context.
-        2. A city is NOT the same as a hotel.
-        3. If they are in different countries, they are NOT the same.
-        
-        Return ONLY a JSON object: {{"match": true/false, "reason": "short explanation"}}
-        """
-        
-        selected_model = self._get_next_model()
-        
-        try:
-            response = self.client.chat.completions.create(
-                model=selected_model,
-                messages=[{"role": "user", "content": prompt}],
-                # Removed strict JSON formatting to prevent 'response_format is not supported' errors from mixed providers
-                temperature=0.0
-            )
-            
-            decision = parse_llm_json(response.choices[0].message.content)
-            logger.info(f"NLP Fusion Verification ({selected_model}): {decision.get('match')} ({decision.get('reason')})")
-            return bool(decision.get('match'))
-        except Exception as e:
-            logger.error(f"Fusion verification failed with model {selected_model}: {e}")
-            return False
-
-if __name__ == "__main__":
-    nlp = NLPManager()
-    sample = "SpaceX launched a Falcon 9 rocket from Boca Chica, Texas today."
-    print(json.dumps(nlp.extract_intelligence(sample), indent=2))

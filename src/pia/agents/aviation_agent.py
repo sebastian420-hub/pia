@@ -23,10 +23,6 @@ class AviationAgent(BaseAgent):
             logger.warning(f"{self.name}: no real ADS-B feed is implemented; set SIMULATED_SENSORS=true to emit demo data. Exiting.")
             sys.exit(0)
         self.db = DatabaseManager()
-        self.db.execute_query(
-            "INSERT INTO source_authority (source_name, source_type, trust_score, notes) VALUES (%s, 'SIGINT', 0.1, 'Hardcoded demo aircraft; not real telemetry') ON CONFLICT DO NOTHING",
-            (self.SOURCE_NAME,)
-        )
         logger.info(f"{self.name} initialized (SIMULATED aviation data).")
 
     def poll(self):
@@ -72,10 +68,10 @@ class AviationAgent(BaseAgent):
         self.db.execute_query(
             """
             INSERT INTO intelligence_records (
-                source_type, source_agent, source_name, content_hash,
+                source_type, source_id, source_agent, source_name, content_hash,
                 content_headline, content_summary, domain, priority, geo, confidence
             ) VALUES (
-                'SIGINT', %s, %s, %s,
+                'SIGINT', 'simulated', %s, %s, %s,
                 %s, %s, 'AVIATION', %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.1
             ) ON CONFLICT (content_hash) DO NOTHING
             """, (self.name, self.SOURCE_NAME, content_hash, headline, summary, priority, flight['lon'], flight['lat'])

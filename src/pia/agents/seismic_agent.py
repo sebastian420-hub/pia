@@ -1,3 +1,5 @@
+import os
+
 import requests
 from loguru import logger
 from pia.core.base_agent import BaseAgent
@@ -8,6 +10,8 @@ class SeismicAgent(BaseAgent):
     """Polls USGS for real-time earthquake data and ingests into PIA."""
     
     USGS_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson"
+    # Below this magnitude an earthquake is telemetry (Layer 1) but not a report on the globe.
+    MIN_REPORT_MAGNITUDE = float(os.getenv("SEISMIC_MIN_REPORT_MAGNITUDE", "4.0"))
 
     def setup(self):
         self.db = DatabaseManager()
@@ -60,22 +64,23 @@ class SeismicAgent(BaseAgent):
             )
         )
 
-        # 3. Insert into Layer 2 (Universal Intelligence Record)
-        # This will fire the 'Heartbeat' Trigger automatically
+        # 3. Only meaningful quakes become reports (the trigger queues analysis)
+        if (event.properties.mag or 0) < self.MIN_REPORT_MAGNITUDE:
+            return
         self.db.execute_query(
             """
             INSERT INTO intelligence_records (
-                source_type, source_agent, source_name, source_url,
+                source_type, source_id, source_agent, source_name, source_url, published_at,
                 content_headline, content_summary, domain, priority,
-                geo, confidence
+                geo, geo_precision, geo_source, confidence
             ) VALUES (
-                'GEOINT', %s, 'USGS Seismic Feed', %s,
+                'GEOINT', 'usgs', %s, 'USGS', %s, %s,
                 %s, %s, 'NATURAL', %s,
-                ST_SetSRID(ST_Point(%s, %s), 4326), 0.95
+                ST_SetSRID(ST_Point(%s, %s), 4326), 'exact', 'sensor', 0.95
             )
             """,
             (
-                self.name, event.properties.url,
+                self.name, event.properties.url, event.event_time,
                 event.properties.title, 
                 f"Earthquake of magnitude {event.properties.mag} detected at {event.properties.place}.",
                 'HIGH' if (event.properties.mag or 0) >= 5.0 else 'NORMAL',

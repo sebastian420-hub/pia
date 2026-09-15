@@ -61,10 +61,7 @@ class CameraAgent(BaseAgent):
             c.media_kind, c.media_url, c.video_url, c.refresh_seconds or provider.default_refresh_seconds,
             provider.attribution, provider.cost_class, provider.requires_relay, json.dumps(c.metadata or {}),
         ) for c in cams]
-        with self.db.get_connection() as conn:
-            with conn.cursor() as cur:
-                from psycopg2.extras import execute_values
-                execute_values(cur, """
+        self.db.execute_values("""
                     INSERT INTO sensors (layer_id, provider, external_id, name, geo, city, country_code,
                                          media_kind, media_url, video_url, refresh_seconds,
                                          attribution, cost_class, requires_relay, metadata, last_seen)
@@ -77,13 +74,12 @@ class CameraAgent(BaseAgent):
                         requires_relay = EXCLUDED.requires_relay, metadata = EXCLUDED.metadata,
                         last_seen = NOW(),
                         status = CASE WHEN sensors.status = 'OFFLINE' THEN 'UNKNOWN' ELSE sensors.status END
-                """, rows, template="(%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW())")
-                # Cameras the provider stopped listing go OFFLINE
-                cur.execute("""
-                    UPDATE sensors SET status = 'OFFLINE'
-                    WHERE provider = %s AND (last_seen IS NULL OR last_seen < NOW() - INTERVAL '5 minutes')
-                """, (provider.provider_id,))
-            conn.commit()
+            """, rows, template="(%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW())")
+        # Cameras the provider stopped listing go OFFLINE
+        self.db.execute_query("""
+            UPDATE sensors SET status = 'OFFLINE'
+            WHERE provider = %s AND (last_seen IS NULL OR last_seen < NOW() - INTERVAL '5 minutes')
+        """, (provider.provider_id,))
         logger.success(f"{provider.provider_id}: {len(rows)} cameras upserted")
 
     def probe_sample(self):

@@ -1,19 +1,3 @@
+# timescaledb-ha already ships PostGIS, pgvector, pgvectorscale, pg_trgm and unaccent.
+# (Apache AGE was compiled here before; schema v2 no longer uses it.)
 FROM timescale/timescaledb-ha:pg16
-
-USER root
-
-# Install build dependencies for Apache AGE
-RUN apt-get update && apt-get install -y build-essential git postgresql-server-dev-16 bison flex
-
-# Clone and compile Apache AGE for PostgreSQL 16
-RUN git clone --depth 1 --branch PG16 https://github.com/apache/age.git /tmp/age \
-    && cd /tmp/age \
-    && make -j$(nproc) USE_PGXS=1 install
-
-# Clean up
-RUN apt-get remove -y build-essential git postgresql-server-dev-16 bison flex \
-    && apt-get autoremove -y \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/*
-
-USER postgres

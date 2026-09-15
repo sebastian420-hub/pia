@@ -32,6 +32,8 @@ def test_domain_heuristics():
     assert classify_domain("parliament debates new bill") == "POLITICAL"
     # military wins over financial when both appear
     assert classify_domain("army budget hits stock market") == "MILITARY"
+    # whole words only
+    assert classify_domain("new vr hardware and software warning") == "POLITICAL"
 
 
 def test_priority_heuristics():

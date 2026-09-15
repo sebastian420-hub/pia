@@ -44,7 +44,7 @@ def bump_version(new_version):
         subprocess.run(["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"], check=True)
         logger.success(f"Successfully bumped to {new_version} and created tag {tag_name}")
         
-        logger.info(f"Run 'git push origin main --tags' to publish the release.")
+        logger.info("Run 'git push origin main --tags' to publish the release.")
     except Exception as e:
         logger.error(f"Git operation failed: {e}")
 

@@ -104,11 +104,11 @@ class DocumentAgent(BaseAgent):
                 self.db.execute_query(
                     """
                     INSERT INTO intelligence_records (
-                        source_type, source_agent, source_name, content_hash,
-                        content_headline, content_raw, domain, priority, confidence
+                        source_type, source_id, source_agent, source_name, content_hash,
+                        content_headline, content_raw, body_status, domain, priority, confidence
                     ) VALUES (
-                        'HUMINT', %s, %s, %s,
-                        %s, %s, 'INVESTIGATIVE', 'HIGH', 0.80
+                        'HUMINT', 'upload', %s, %s, %s,
+                        %s, %s, 'OK', 'INVESTIGATIVE', 'HIGH', 0.80
                     ) ON CONFLICT (content_hash) DO NOTHING;
                     """,
                     (

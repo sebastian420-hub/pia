@@ -1,476 +1,291 @@
-from loguru import logger
-import json
+"""
+Analyst: turns one report into knowledge.
+
+    claim job → summary + embedding + situation
+              → extract mentions/events (full article)
+              → resolve every mention to an identity (Wikidata Q-id, local, or review)
+              → store mentions, events (with quotes), geocode the report
+              → DONE / FAILED (retried)
+
+Relations are never written here; kg.relations computes them from events.
+"""
+import hashlib
 import os
-from typing import Optional, Dict, List, Tuple
+import socket
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Tuple
+
+from loguru import logger
 
 from pia.core.base_agent import BaseAgent
-from pia.core.database import DatabaseManager, assert_safe_label, CypherLabelError
-from pia.core.nlp import NLPManager, ExtractionError
+from pia.core.database import DatabaseManager
+from pia.core.nlp import ExtractionError, NLPManager
+from pia.kg.normalize import normalize
+from pia.kg.ontology import ACTIONS
+from pia.kg.resolver import Resolver
 
 
 class AnalystAgent(BaseAgent):
-    """
-    The Upgraded Heartbeat Analyst.
-    Performs Spatial Correlation, Entity Extraction (NLP), and Graph Linking.
-    """
-
-    # A job left in PROCESSING longer than this is assumed to belong to a dead
-    # worker and is re-claimed. FAILED jobs are retried up to MAX_RETRIES times.
     STALE_MINUTES = int(os.getenv("ANALYST_STALE_MINUTES", "10"))
     MAX_RETRIES = int(os.getenv("ANALYST_MAX_RETRIES", "3"))
     RETRY_DELAY_MINUTES = int(os.getenv("ANALYST_RETRY_DELAY_MINUTES", "5"))
-    NEW_ENTITY_CONFIDENCE = 0.5  # maintenance.py purges < 0.4; new work must survive
+    MIN_EVENT_CONFIDENCE = float(os.getenv("MIN_EVENT_CONFIDENCE", "0.5"))
 
     def setup(self):
         self.db = DatabaseManager()
         self.nlp = NLPManager()
-        # One stable name per container (hostname = container id) so heartbeats survive restarts
-        import socket
+        self.resolver = Resolver(self.db, llm_choose=self.nlp.choose_candidate)
         self.name = f"analyst_{socket.gethostname()}"
-        logger.info(f"{self.name} initialized with NLP extraction brain.")
+        logger.info(f"{self.name} ready (event extraction + Wikidata resolution)")
+
+    # ── queue ─────────────────────────────────────────────────────────────────
 
     def poll(self):
-        """Drains the analysis queue: keeps claiming jobs until none are left."""
         while self.running:
             if not self.process_one_job():
                 return
+            self.heartbeat("OK", {"interval_sec": self.interval_sec})
 
     def claim_job(self) -> Optional[Dict]:
-        """Atomically claims one job (PENDING, stale PROCESSING, or retryable FAILED)."""
-        job_query = """
+        rows = self.db.execute_query("""
             UPDATE analysis_queue
-            SET status = 'PROCESSING',
-                processed_at = NOW(),
-                assigned_at = NOW(),
-                assigned_agent = %s
+            SET status = 'PROCESSING', processed_at = NOW(), assigned_at = NOW(), assigned_agent = %s
             WHERE queue_id = (
-                SELECT q.queue_id
-                FROM analysis_queue q
+                SELECT q.queue_id FROM analysis_queue q
                 WHERE q.status = 'PENDING'
-                   OR (q.status = 'PROCESSING'
-                       AND q.processed_at < NOW() - make_interval(mins => %s))
-                   OR (q.status = 'FAILED'
-                       AND q.retry_count < %s
-                       AND q.processed_at < NOW() - make_interval(mins => %s))
+                   OR (q.status = 'PROCESSING' AND q.processed_at < NOW() - make_interval(mins => %s))
+                   OR (q.status = 'FAILED' AND q.retry_count < %s AND q.processed_at < NOW() - make_interval(mins => %s))
                 ORDER BY q.priority = 'CRITICAL' DESC, q.created_at ASC
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1
-            )
-            RETURNING queue_id, uir_uid, retry_count;
-        """
-        claimed = self.db.execute_query(
-            job_query,
-            (self.name, self.STALE_MINUTES, self.MAX_RETRIES, self.RETRY_DELAY_MINUTES),
-            fetch=True,
-        )
-        return claimed[0] if claimed else None
+                FOR UPDATE SKIP LOCKED LIMIT 1)
+            RETURNING queue_id, uir_uid, retry_count
+        """, (self.name, self.STALE_MINUTES, self.MAX_RETRIES, self.RETRY_DELAY_MINUTES), fetch=True)
+        return rows[0] if rows else None
 
     def fail_job(self, job_id, message: str, retryable: bool = True):
-        """Marks a job FAILED. Retryable failures count towards MAX_RETRIES."""
-        self.db.execute_query(
-            """
-            UPDATE analysis_queue
-            SET status = 'FAILED',
-                error_message = %s,
+        self.db.execute_query("""
+            UPDATE analysis_queue SET status = 'FAILED', error_message = %s,
                 retry_count = CASE WHEN %s THEN retry_count + 1 ELSE %s END
             WHERE queue_id = %s
-            """,
-            (str(message)[:2000], retryable, self.MAX_RETRIES, job_id),
-        )
+        """, (str(message)[:2000], retryable, self.MAX_RETRIES, job_id))
 
     def process_one_job(self) -> bool:
-        """Processes a single job. Returns False when the queue is empty."""
         claimed = self.claim_job()
         if not claimed:
             return False
+        job_id, uid = claimed['queue_id'], claimed['uir_uid']
 
-        job_id = claimed['queue_id']
-        uir_uid = claimed['uir_uid']
-
-        if uir_uid is None:
-            self.fail_job(job_id, "Queue row has no uir_uid", retryable=False)
-            return True
-
-        # Fetch the full context for the claimed job, including source authority
-        job_results = self.db.execute_query("""
-            SELECT u.uid, u.geo, u.domain, u.priority, u.content_headline, u.content_summary, u.content_raw, u.mission_id, u.client_id,
-                   u.source_name, COALESCE(s.trust_score, 0.5) as source_trust,
-                   m.category as mission_category, m.keywords as mission_keywords
+        rows = self.db.execute_query("""
+            SELECT u.uid, u.geo, u.domain, u.priority, u.content_headline, u.content_summary, u.content_raw,
+                   u.published_at, u.created_at, u.source_id, u.source_type, u.client_id, u.mission_id,
+                   COALESCE(s.trust, 0.5) AS source_trust, s.country_qid AS source_country,
+                   m.keywords AS mission_keywords
             FROM intelligence_records u
-            LEFT JOIN mission_focus m ON u.mission_id = m.focus_id
-            LEFT JOIN source_authority s ON u.source_name = s.source_name
+            LEFT JOIN sources s ON s.source_id = u.source_id
+            LEFT JOIN mission_focus m ON m.focus_id = u.mission_id
             WHERE u.uid = %s
-        """, (uir_uid,), fetch=True)
-
-        if not job_results:
-            logger.error(f"UIR {uir_uid} not found for Job {job_id}")
-            self.fail_job(job_id, "UIR record missing", retryable=False)
+        """, (uid,), fetch=True)
+        if not rows:
+            self.fail_job(job_id, "report missing", retryable=False)
             return True
-
-        job_context = job_results[0]
-        logger.info(f"Agent {self.name} claimed Job {job_id} from {job_context['source_name']} (Trust: {job_context['source_trust']})")
+        report = rows[0]
+        logger.info(f"claimed {job_id} [{report['source_id']}] {str(report['content_headline'])[:60]}")
 
         try:
-            # --- SUB-TASK 1: Spatial reasoning ---
-            anchor_city = self.find_nearest_anchor(job_context['geo'])
-            cluster_id, record_vector = self.correlate_and_cluster(job_context, anchor_city)
+            text = report['content_raw'] or report['content_summary'] or report['content_headline'] or ""
+            summary_vec = self.nlp.generate_embedding((report['content_summary'] or report['content_headline'] or "").lower())
+            cluster_id = self.correlate_and_cluster(report, summary_vec)
 
-            # --- SUB-TASK 2: NLP Object Extraction (Mission-Aware) ---
-            text_to_analyze = job_context['content_raw'] or job_context['content_summary'] or job_context['content_headline'] or ""
+            if report['source_type'] in ('GEOINT', 'SIGINT') or len(text) < 80:
+                # sensor readings and tiny blurbs: no LLM extraction, just bookkeeping
+                self.finish(job_id, uid, cluster_id, summary_vec, None, [])
+                return True
 
-            intelligence_components = self.nlp.extract_intelligence(
-                text_to_analyze,
-                mission_category=job_context.get('mission_category'),
-                mission_keywords=job_context.get('mission_keywords'),
-                client_id=job_context.get('client_id')
-            )
+            extraction = self.nlp.extract_events(
+                text, headline=report['content_headline'] or "", outlet=report['source_id'] or "",
+                published=(report['published_at'] or report['created_at']).date().isoformat(),
+                mission_keywords=report.get('mission_keywords'))
 
-            # --- SUB-TASK 3: Entity Resolution and Linking ---
-            resolved_entities = self.process_intelligence_components(uir_uid, intelligence_components)
+            context = {
+                "headline": report['content_headline'], "country_context": extraction.get("country_context"),
+                "country_qid": self._country_qid(extraction.get("country_context")) or report.get('source_country'),
+            }
+            resolved = self.store_mentions(uid, extraction.get("mentions", []), context)
+            self.store_events(report, extraction.get("events", []), resolved, context)
+            self.geocode_report(report, resolved)
 
-            # --- SUB-TASK 4: Relationship Inference & Graph Sync ---
-            self.process_inferred_relationships(resolved_entities, intelligence_components.get('relationships', []), job_context)
-
-            # Extract entity names to save back to the UIR
-            extracted_entity_names = list(resolved_entities.keys())
-            summary = intelligence_components.get('summary')
-            if not isinstance(summary, str) or not summary.strip():
-                summary = None
-
-            # Finalize job: also persist the embedding (semantic search) and the LLM summary
-            self.db.execute_query("""
-                UPDATE intelligence_records
-                SET cluster_id = %s,
-                    entities = %s,
-                    embedding = COALESCE(%s::vector, embedding),
-                    content_summary = COALESCE(content_summary, %s)
-                WHERE uid = %s
-            """, (cluster_id, extracted_entity_names, record_vector or None, summary, uir_uid))
-            self.db.execute_query(
-                "UPDATE analysis_queue SET status = 'DONE', error_message = NULL, result_cluster = %s WHERE queue_id = %s",
-                (cluster_id, job_id),
-            )
-
-            logger.success(f"Intelligence Fusion Complete for UIR {uir_uid}")
-
+            names = sorted({e['name'] for e in resolved.values() if e and e['resolution'] == 'RESOLVED'})
+            self.finish(job_id, uid, cluster_id, summary_vec, extraction.get("summary"), names)
         except ExtractionError as e:
-            logger.error(f"Extraction failed for job {job_id}: {e}")
+            logger.error(f"extraction failed {job_id}: {e}")
             self.fail_job(job_id, f"extraction: {e}")
         except Exception as e:
-            logger.error(f"Fusion failed for job {job_id}: {e}")
+            logger.exception(f"job {job_id} failed")
             self.fail_job(job_id, str(e))
         return True
 
-    def process_intelligence_components(self, uir_uid: str, components: Dict) -> Dict[str, str]:
-        """Resolves extracted names to database UUIDs using Multi-Factor Grounding."""
-        resolved_map = {}
+    def finish(self, job_id, uid, cluster_id, vec, summary, names):
+        summary = summary.strip() if isinstance(summary, str) and summary.strip() else None
+        self.db.execute_query("""
+            UPDATE intelligence_records
+            SET cluster_id = %s, entities = %s, embedding = COALESCE(%s::vector, embedding),
+                content_summary = COALESCE(%s, content_summary)
+            WHERE uid = %s
+        """, (cluster_id, names, vec or None, summary, uid))
+        self.db.execute_query(
+            "UPDATE analysis_queue SET status = 'DONE', error_message = NULL, result_cluster = %s WHERE queue_id = %s",
+            (cluster_id, job_id))
+        logger.success(f"done {uid}: {len(names)} entities")
 
-        # Fetch current record context for grounding
-        context = self.db.execute_query("SELECT geo, source_name FROM intelligence_records WHERE uid = %s", (uir_uid,), fetch=True)[0]
-        record_geo = context['geo']
+    # ── identity ──────────────────────────────────────────────────────────────
 
-        for ent in components.get('entities', []):
-            if not isinstance(ent, dict):
-                continue
-            name = (ent.get('name') or "").strip()
-            ent_type = (ent.get('type') or "").strip().upper()
-            if not name or not ent_type:
-                continue
-
-            # Map restricted types to allowed types
-            if ent_type == 'GPE':
-                ent_type = 'LOCATION'
-
-            best_eid = None
-            best_score = 0.0
-
-            query_vector = self.nlp.generate_embedding(name)
-
-            # 1. Candidate 1: Lexical Match (an exact name match wins even when the
-            #    stored entity has no embedding yet; prefer the most-mentioned duplicate)
-            if query_vector:
-                lexical = self.db.execute_query("""
-                    SELECT entity_id, name, (1 - (embedding <=> %s::vector)) as similarity
-                    FROM entities
-                    WHERE (name ILIKE %s OR %s = ANY(aliases))
-                    ORDER BY mention_count DESC, created_at ASC
-                    LIMIT 1
-                """, (query_vector, name, name), fetch=True)
-            else:
-                lexical = self.db.execute_query("""
-                    SELECT entity_id, name, NULL::float as similarity
-                    FROM entities
-                    WHERE (name ILIKE %s OR %s = ANY(aliases))
-                    ORDER BY mention_count DESC, created_at ASC
-                    LIMIT 1
-                """, (name, name), fetch=True)
-
-            if lexical:
-                best_eid = lexical[0]['entity_id']
-                best_score = lexical[0]['similarity'] if lexical[0]['similarity'] is not None else 1.0
-
-            # 2. Candidate 2: Semantic Match (Nearest Neighbor)
-            semantic = None
-            if query_vector and record_geo:
-                semantic = self.db.execute_query("""
-                    SELECT entity_id, name, entity_type, (1 - (embedding <=> %s::vector)) as similarity,
-                           ST_Distance(primary_geo, %s) as distance_meters
-                    FROM entities
-                    WHERE embedding IS NOT NULL
-                    AND entity_type = %s
-                    ORDER BY embedding <=> %s::vector
-                    LIMIT 1
-                """, (query_vector, record_geo, ent_type, query_vector), fetch=True)
-            elif query_vector:
-                semantic = self.db.execute_query("""
-                    SELECT entity_id, name, entity_type, (1 - (embedding <=> %s::vector)) as similarity,
-                           NULL as distance_meters
-                    FROM entities
-                    WHERE embedding IS NOT NULL
-                    AND entity_type = %s
-                    ORDER BY embedding <=> %s::vector
-                    LIMIT 1
-                """, (query_vector, ent_type, query_vector), fetch=True)
-
-            if semantic:
-                s_cand = semantic[0]
-                s_score = s_cand['similarity'] or 0.0
-
-                # Physics Guardrail (Only applies if we have a geo constraint)
-                is_far = bool(s_cand['distance_meters'] and s_cand['distance_meters'] > 100000)
-
-                # Logic Tie-Breaker
-                if s_score > 0.45 and not is_far and s_cand['entity_id'] != best_eid:
-                    if s_score < 0.85:
-                        cand_info = {"name": s_cand['name'], "type": s_cand['entity_type']}
-                        new_info = {"name": name, "type": ent_type}
-                        if not self.nlp.verify_fusion(cand_info, new_info):
-                            s_score = 0.0
-
-                    if s_score > best_score:
-                        best_eid = s_cand['entity_id']
-                        best_score = s_score
-
-            # 3. Final Decision
-            if best_eid and best_score > 0.45:
-                resolved_map[name] = best_eid
-
-                # Semantic Geo-Tagging Fallback (Phase 9 Upgrade)
-                if not record_geo:
-                    entity_geo = self.db.execute_query("SELECT primary_geo FROM entities WHERE entity_id = %s", (best_eid,), fetch=True)
-                    if entity_geo and entity_geo[0]['primary_geo']:
-                        # Give the UIR the entity's coordinates so it renders on the globe
-                        self.db.execute_query(
-                            "UPDATE intelligence_records SET geo = %s WHERE uid = %s",
-                            (entity_geo[0]['primary_geo'], uir_uid)
-                        )
-                        record_geo = entity_geo[0]['primary_geo']
-                        logger.success(f"Semantic Geo-Tagging applied: Anchored UIR {uir_uid} to '{name}' ({best_eid})")
-
-                self.db.execute_query("""
-                    UPDATE entities
-                    SET mention_count = mention_count + 1,
-                        uir_refs = array_append(uir_refs, %s),
-                        last_seen = NOW()
-                    WHERE entity_id = %s
-                """, (uir_uid, best_eid))
-                logger.success(f"Grounded Resolution: '{name}' -> '{best_eid}' ({best_score:.2f})")
-            else:
-                # New entity creation. Non-LOCATION names are unique per type
-                # (partial index entities_name_type_uq), so concurrent analysts
-                # converge on one row instead of creating duplicates.
-                new_ent = self.db.execute_query("""
-                    INSERT INTO entities (name, entity_type, mention_count, uir_refs, confidence, embedding, primary_geo)
-                    VALUES (%s, %s, 1, ARRAY[%s::uuid], %s, %s::vector, %s)
-                    ON CONFLICT (lower(name), entity_type) WHERE entity_type <> 'LOCATION'
-                    DO UPDATE SET mention_count = entities.mention_count + 1,
-                                  uir_refs = array_append(entities.uir_refs, EXCLUDED.uir_refs[1]),
-                                  last_seen = NOW()
-                    RETURNING entity_id
-                """, (name, ent_type, uir_uid, self.NEW_ENTITY_CONFIDENCE, query_vector or None, record_geo), fetch=True)
-                resolved_map[name] = new_ent[0]['entity_id']
-                logger.debug(f"Created new GROUNDED entity: {name}")
-
-        return resolved_map
-
-    def process_inferred_relationships(self, resolved_map: Dict[str, str], relationships: List[Dict], context: Dict):
-        """Creates relationship records with Cross-Verification logic."""
-        source_trust = context['source_trust']
-        client_id = context.get('client_id') or '00000000-0000-0000-0000-000000000000'
-        uir_uid = context['uid']
-
-        for rel in relationships:
-            if not isinstance(rel, dict):
-                continue
-            sub_id = resolved_map.get(rel.get('subject'))
-            obj_id = resolved_map.get(rel.get('object'))
-            predicate = rel.get('predicate')
-            reasoning = rel.get('reasoning', 'No reasoning provided.')
-
-            # STRICT VERB VALIDATION (Anti-Hallucination Guardrail)
-            if predicate not in self.nlp.ALL_VALID_VERBS:
-                logger.warning(f"Dropping hallucinated relationship predicate: '{predicate}'")
-                continue
-
-            if sub_id and obj_id and sub_id != obj_id:
-                # CROSS-VERIFICATION LOGIC:
-                # 1. We check if this relationship exists FOR THIS CLIENT
-                existing = self.db.execute_query("""
-                    SELECT relationship_id, confidence, evidence_uids
-                    FROM entity_relationships
-                    WHERE entity_a_id = %s AND entity_b_id = %s AND relationship_type = %s AND client_id = %s
-                """, (sub_id, obj_id, predicate, client_id), fetch=True)
-
-                base_confidence = source_trust * 0.6 # Initial trust weighted by source
-                new_confidence = base_confidence
-
-                if existing:
-                    # Relationship corroborated!
-                    e_uids = existing[0]['evidence_uids'] or []
-                    if isinstance(e_uids, str):
-                        # Convert {uuid1,uuid2} to list
-                        e_uids = e_uids.strip('{}').split(',') if e_uids != '{}' else []
-                    e_uids = [str(u).strip() for u in e_uids if str(u).strip()]
-
-                    if str(uir_uid) not in e_uids:
-                        e_uids.append(str(uir_uid))
-                        new_confidence = min(existing[0]['confidence'] + (source_trust * 0.2), 0.98)
-                    else:
-                        new_confidence = existing[0]['confidence']
-
-                    self.db.execute_query("""
-                        UPDATE entity_relationships
-                        SET last_confirmed = NOW(),
-                            updated_at = NOW(),
-                            confidence = %s,
-                            mention_count = mention_count + 1,
-                            evidence_count = array_length(%s::uuid[], 1),
-                            evidence_uids = %s::uuid[],
-                            metadata = jsonb_set(COALESCE(metadata, '{}'), '{latest_reasoning}', %s)
-                        WHERE relationship_id = %s
-                    """, (new_confidence, e_uids, e_uids, json.dumps(reasoning), existing[0]['relationship_id']))
-                    logger.info(f"Relationship Corroborated: confidence raised to {new_confidence:.2f}")
-                else:
-                    # First time seeing this link
-                    self.db.execute_query("""
-                        INSERT INTO entity_relationships (
-                            entity_a_id, entity_b_id, relationship_type, confidence,
-                            mention_count, evidence_count, evidence_uids, client_id, metadata
-                        ) VALUES (%s, %s, %s, %s, 1, 1, ARRAY[%s::uuid], %s, %s)
-                        ON CONFLICT (entity_a_id, entity_b_id, relationship_type, client_id) DO NOTHING
-                    """, (sub_id, obj_id, predicate, base_confidence, uir_uid, client_id, json.dumps({"reasoning": reasoning})))
-
-                # Sync to Graph only if confidence > 0.5
-                if new_confidence > 0.5:
-                    self._sync_to_graph(sub_id, obj_id, predicate)
-
-    def _sync_to_graph(self, sub_id, obj_id, predicate):
-        """Mirrors a relationship to Apache AGE. Names travel as Cypher parameters."""
-        names = self.db.execute_query("""
-            SELECT
-                (SELECT name FROM entities WHERE entity_id = %s) as name_a,
-                (SELECT name FROM entities WHERE entity_id = %s) as name_b
-        """, (sub_id, obj_id), fetch=True)[0]
-
-        try:
-            label = assert_safe_label(predicate)
-        except CypherLabelError as e:
-            logger.warning(f"Graph sync skipped: {e}")
-            return
-
-        cypher = (
-            "MERGE (a:ENTITY {name: $name_a}) "
-            "MERGE (b:ENTITY {name: $name_b}) "
-            f"MERGE (a)-[r:{label}]->(b)"
-        )
-        try:
-            self.db.execute_cypher('pia_graph', cypher, {"name_a": names['name_a'], "name_b": names['name_b']})
-        except Exception as e:
-            logger.warning(f"Graph relationship sync failed: {e}")
-
-    def find_nearest_anchor(self, geo_point) -> Optional[Dict]:
-        """Finds the nearest seeded city within 100km using PostGIS."""
-        if not geo_point:
+    def _country_qid(self, country_name: Optional[str]) -> Optional[str]:
+        if not country_name:
             return None
+        row = self.db.execute_query("""
+            SELECT e.qid FROM entity_aliases a JOIN entities e ON e.entity_id = a.entity_id
+            WHERE a.alias_norm = %s AND e.kind = 'COUNTRY' AND e.qid IS NOT NULL LIMIT 1
+        """, (normalize(country_name),), fetch=True)
+        return row[0]['qid'] if row else None
 
-        query = """
-            SELECT name, canonical_name, entity_id,
-                   ST_Distance(primary_geo, %s) as distance_meters
-            FROM entities
-            WHERE entity_type = 'LOCATION'
-            AND ST_DWithin(primary_geo, %s, 100000) -- 100km radius
-            ORDER BY distance_meters ASC
-            LIMIT 1
-        """
-        results = self.db.execute_query(query, (geo_point, geo_point), fetch=True)
-        return results[0] if results else None
-
-    def correlate_and_cluster(self, job, anchor_city) -> Tuple[str, List[float]]:
-        """
-        Finds an existing active cluster using Multi-Level Matching, or creates one.
-        Returns (cluster_id, record_vector) so the caller can persist the embedding.
-        """
-        domain = job['domain']
-        geo = job['geo']
-        content = (job['content_summary'] or job['content_headline'] or "").lower()
-        record_vector = self.nlp.generate_embedding(content)
-
-        city_name = anchor_city['name'] if anchor_city else None
-
-        # Determine the best match
-        cid = None
-        if geo and record_vector:
-            # LEVEL 1: High-Confidence Semantic Match
-            existing = self.db.execute_query("""
-                SELECT cluster_id FROM intelligence_clusters
-                WHERE status = 'ACTIVE' AND domain = %s AND client_id = %s
-                AND ST_DWithin(geo_centroid, %s, 50000)
-                AND semantic_dna IS NOT NULL
-                AND (1 - (semantic_dna <=> %s::vector)) > 0.35
-                LIMIT 1
-            """, (domain, job['client_id'], geo, record_vector), fetch=True)
-            if existing: cid = existing[0]['cluster_id']
-
-        if geo and not cid and (job.get('mission_keywords') or job.get('mission_category')):
-            # LEVEL 2: Mission-Spatial Fallback
-            targets = [k.lower() for k in (job.get('mission_keywords') or [])]
-            if job.get('mission_category'): targets.append(job['mission_category'].lower())
-
-            if any(t in content for t in targets):
-                spatial = self.db.execute_query("""
-                    SELECT cluster_id FROM intelligence_clusters
-                    WHERE status = 'ACTIVE' AND domain = %s AND client_id = %s
-                    AND ST_DWithin(geo_centroid, %s, 50000)
-                    LIMIT 1
-                """, (domain, job['client_id'], geo), fetch=True)
-                if spatial: cid = spatial[0]['cluster_id']
-
-        if cid:
+    def store_mentions(self, uid, mentions: List[Dict], context: dict) -> Dict[str, Optional[dict]]:
+        """surface → entity (or None when rejected). Writes the mentions table."""
+        resolved: Dict[str, Optional[dict]] = {}
+        for m in mentions:
+            surface = str(m.get("surface", "")).strip()
+            if not surface or surface in resolved:
+                continue
+            kind = str(m.get("kind", "UNKNOWN")).upper()
+            role = str(m.get("role", "MENTIONED")).upper()
+            if role not in ("ACTOR", "TARGET", "LOCATION", "MENTIONED"):
+                role = "MENTIONED"
+            ent = self.resolver.resolve(surface, kind_hint=kind, role=role, context=context)
+            resolved[surface] = ent
+            if not ent:
+                continue
+            role_out = ent.get("role") or role
             self.db.execute_query("""
-                UPDATE intelligence_clusters
-                SET updated_at = NOW(), uir_count = uir_count + 1
-                WHERE cluster_id = %s
-            """, (cid,))
-            return cid, record_vector
+                INSERT INTO mentions (report_uid, entity_id, surface, role, confidence)
+                VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING
+            """, (uid, ent['entity_id'], surface, role_out, 0.9 if ent['resolution'] == 'RESOLVED' else 0.5))
+            self.db.execute_query(
+                "UPDATE entities SET mention_count = mention_count + 1, last_seen = NOW() WHERE entity_id = %s",
+                (ent['entity_id'],))
+        return resolved
 
-        # STAGE 3: Create new cluster
-        title = f"Situation: {domain} activity"
-        if city_name: title += f" near {city_name}"
+    # ── events ────────────────────────────────────────────────────────────────
 
-        new_cluster = self.db.execute_query("""
-            INSERT INTO intelligence_clusters (
-                title, domain, status, priority, confidence, geo_centroid, uir_count, semantic_dna, client_id
-            ) VALUES (
-                %s, %s, 'ACTIVE', %s, 0.7, %s, 1, %s::vector, %s
-            ) RETURNING cluster_id
-        """, (title, domain, job['priority'], geo, record_vector or None, job['client_id']), fetch=True)
+    def store_events(self, report, events: List[Dict], resolved: Dict[str, Optional[dict]], context: dict):
+        trust = float(report['source_trust'] or 0.5)
+        published = report['published_at'] or report['created_at']
+        for ev in events:
+            action = str(ev.get("action", "OTHER")).upper()
+            if action not in ACTIONS:
+                action = "OTHER"
+            actor = self._lookup(ev.get("actor"), resolved, "ACTOR", context)
+            if not actor or actor['resolution'] != 'RESOLVED':
+                continue  # strict: no event without a known actor
+            target = self._lookup(ev.get("target"), resolved, "TARGET", context)
+            if target and target['resolution'] != 'RESOLVED':
+                target = None
+            location = self._lookup(ev.get("location"), resolved, "LOCATION", context)
+            conf = min(1.0, max(0.0, float(ev.get("confidence") or 0.6))) * (0.6 + 0.4 * trust)
+            if conf < self.MIN_EVENT_CONFIDENCE:
+                continue
+            when, precision = self._event_time(ev.get("date"), ev.get("precision"), published)
+            geo = self._entity_geo(location) if location else None
+            dedup = hashlib.sha1(f"{actor['entity_id']}|{target['entity_id'] if target else ''}|{action}|{when.date()}|{report['source_id']}".encode()).hexdigest()
+            self.db.execute_query("""
+                INSERT INTO events (event_time, time_precision, action, actor_id, target_id, location_id, geo,
+                                    report_uid, source_id, origin, quote, confidence, tone, dedup_key)
+                VALUES (%s, %s, %s, %s, %s, %s, %s::geometry, %s, %s, 'llm', %s, %s, %s, %s)
+                ON CONFLICT (dedup_key, event_time) DO NOTHING
+            """, (when, precision, action, actor['entity_id'], target['entity_id'] if target else None,
+                  location['entity_id'] if location else None, geo, report['uid'], report['source_id'],
+                  str(ev.get("quote") or "")[:1000], round(conf, 3), ACTIONS[action][2], dedup))
 
-        return new_cluster[0]['cluster_id'], record_vector
+    def _lookup(self, surface, resolved, role, context) -> Optional[dict]:
+        if not surface:
+            return None
+        surface = str(surface).strip()
+        if surface in resolved:
+            return resolved[surface]
+        ent = self.resolver.resolve(surface, role=role, context=context)
+        resolved[surface] = ent
+        return ent
+
+    @staticmethod
+    def _event_time(date_str, precision, published) -> Tuple[datetime, str]:
+        if date_str:
+            try:
+                d = datetime.fromisoformat(str(date_str)[:10]).replace(tzinfo=timezone.utc)
+                return d, ("month" if precision == "month" else "day")
+            except ValueError:
+                pass
+        return published.astimezone(timezone.utc), "day"
+
+    def _entity_geo(self, ent: Optional[dict]) -> Optional[str]:
+        if not ent:
+            return None
+        row = self.db.execute_query("SELECT ST_AsEWKT(primary_geo) AS g FROM entities WHERE entity_id = %s", (ent['entity_id'],), fetch=True)
+        return row[0]['g'] if row and row[0]['g'] else None
+
+    def geocode_report(self, report, resolved: Dict[str, Optional[dict]]):
+        """Reports without a position take the position of their location / country mention."""
+        if report['geo']:
+            return
+        for preference in ("PLACE", "COUNTRY"):
+            for ent in resolved.values():
+                if ent and ent['kind'] == preference and ent['resolution'] == 'RESOLVED':
+                    g = self._entity_geo(ent)
+                    if g:
+                        self.db.execute_query("""
+                            UPDATE intelligence_records SET geo = %s::geometry, geo_precision = %s, geo_source = %s WHERE uid = %s
+                        """, (g, 'city' if preference == 'PLACE' else 'country', f"entity:{ent['qid'] or ent['entity_id']}", report['uid']))
+                        return
+
+    # ── situations ────────────────────────────────────────────────────────────
+
+    def correlate_and_cluster(self, report, vec) -> Optional[str]:
+        """Same area (50 km) + same domain + similar meaning (> 0.6) within 3 days → same situation."""
+        geo, domain = report['geo'], report['domain']
+        if not geo or not vec:
+            return None
+        hit = self.db.execute_query("""
+            SELECT cluster_id FROM intelligence_clusters
+            WHERE status = 'ACTIVE' AND domain = %s AND client_id = %s
+              AND updated_at > NOW() - INTERVAL '3 days'
+              AND ST_DWithin(geo_centroid::geography, %s::geography, 50000)
+              AND semantic_dna IS NOT NULL AND (1 - (semantic_dna <=> %s::vector)) > 0.6
+            ORDER BY semantic_dna <=> %s::vector LIMIT 1
+        """, (domain, report['client_id'], geo, vec, vec), fetch=True)
+        if hit:
+            cid = hit[0]['cluster_id']
+            self.db.execute_query("UPDATE intelligence_clusters SET updated_at = NOW(), uir_count = uir_count + 1 WHERE cluster_id = %s", (cid,))
+            return cid
+        # Only start a situation when a second report agrees: a lone report stays unclustered
+        near = self.db.execute_query("""
+            SELECT uid FROM intelligence_records
+            WHERE uid <> %s AND domain = %s AND cluster_id IS NULL AND embedding IS NOT NULL
+              AND created_at > NOW() - INTERVAL '3 days' AND geo IS NOT NULL
+              AND ST_DWithin(geo::geography, %s::geography, 50000)
+              AND (1 - (embedding <=> %s::vector)) > 0.6
+            LIMIT 1
+        """, (report['uid'], domain, geo, vec), fetch=True)
+        if not near:
+            return None
+        title = f"{str(domain).title()} situation: {str(report['content_headline'])[:80]}"
+        row = self.db.execute_query("""
+            INSERT INTO intelligence_clusters (title, domain, status, priority, confidence, geo_centroid, uir_count, semantic_dna, client_id, event_start)
+            VALUES (%s, %s, 'ACTIVE', %s, 0.6, %s, 2, %s::vector, %s, NOW()) RETURNING cluster_id
+        """, (title, domain, report['priority'], geo, vec, report['client_id']), fetch=True)
+        cid = row[0]['cluster_id']
+        self.db.execute_query("UPDATE intelligence_records SET cluster_id = %s WHERE uid = %s", (cid, near[0]['uid']))
+        return cid
 
     def stop(self):
         self.db.close()
 
 
 if __name__ == "__main__":
-    agent = AnalystAgent(name="heartbeat_analyst_v1", interval_sec=10)
+    agent = AnalystAgent(name="heartbeat_analyst_v2", interval_sec=10)
     agent.run()

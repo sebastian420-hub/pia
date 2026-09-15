@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS rate_limits (
+    name      TEXT PRIMARY KEY,
+    last_call TIMESTAMPTZ NOT NULL DEFAULT '1970-01-01'
+);

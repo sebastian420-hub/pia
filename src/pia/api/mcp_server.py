@@ -131,29 +131,40 @@ def search_spatial(lat: float, lon: float, radius_km: float = 50.0) -> List[Dict
 
 
 @tool
-def get_entity_network(name: str, hops: int = 2) -> Dict:
+def get_entity_network(name: str, hops: int = 1) -> Dict:
     """
-    Traverse the knowledge graph from an entity outward to find connections.
-    Use this to discover hidden relationships between people, organizations, or locations.
+    Connections of an entity in the knowledge web (relations computed from events and Wikidata).
+    Use this to discover who is linked to a person, organisation or country, with evidence counts.
     """
-    hops = max(1, min(int(hops), 3))
-    logger.info(f"MCP Tool: get_entity_network called for '{name}' (hops={hops})")
-
-    # The name is a Cypher parameter ($name); only the validated hop count is
-    # formatted into the query text. AGE column lists must match the RETURN
-    # arity, so the three values are returned as one map.
-    cypher_query = (
-        "MATCH (a:ENTITY {name: $name}) "
-        f"MATCH p = (a)-[*1..{hops}]-(connected:ENTITY) "
-        "RETURN {name: connected.name, relationship: type(relationships(p)[0]), depth: length(p)}"
-    )
+    hops = max(1, min(int(hops), 2))
+    logger.info(f"MCP Tool: get_entity_network('{name}', hops={hops})")
     try:
-        rows = db.execute_cypher('pia_graph', cypher_query, {"name": name})
-        connections = [db.parse_agtype(r['v']) for r in rows]
+        root = db.execute_query("""
+            SELECT e.entity_id, e.qid, e.name, e.kind, e.description FROM entity_aliases a
+            JOIN entities e ON e.entity_id = a.entity_id
+            WHERE a.alias_norm = lower(%s) AND e.resolution = 'RESOLVED'
+            ORDER BY e.mention_count DESC LIMIT 1
+        """, (name,), fetch=True)
+        if not root:
+            return {"error": f"'{name}' is not in the knowledge web"}
+        root = root[0]
+        rows = db.execute_query("""
+            SELECT CASE WHEN r.a_id = %s THEN r.b_id ELSE r.a_id END AS other_id, r.kind, r.source, r.label,
+                   r.event_count, r.weight, r.first_seen, r.last_seen
+            FROM relations r WHERE r.a_id = %s OR r.b_id = %s
+            ORDER BY r.weight DESC LIMIT 60
+        """, (root['entity_id'], root['entity_id'], root['entity_id']), fetch=True) or []
+        others = {r['other_id'] for r in rows}
+        names = {n['entity_id']: n for n in (db.execute_query(
+            "SELECT entity_id, qid, name, kind FROM entities WHERE entity_id = ANY(%s)", (list(others),), fetch=True) or [])}
         return {
-            "root": name,
-            "connections": connections,
-            "total_connections": len(connections)
+            "root": {"qid": root['qid'], "name": root['name'], "kind": root['kind'], "description": root['description']},
+            "connections": [{
+                "name": names.get(r['other_id'], {}).get('name'), "qid": names.get(r['other_id'], {}).get('qid'),
+                "kind": names.get(r['other_id'], {}).get('kind'), "relation": r['kind'], "label": r['label'],
+                "source": r['source'], "events": r['event_count'], "weight": round(float(r['weight']), 3),
+                "first_seen": r['first_seen'], "last_seen": r['last_seen'],
+            } for r in rows],
         }
     except Exception as e:
         logger.error(f"MCP get_entity_network failed: {e}")
@@ -176,8 +187,8 @@ def submit_tasking(instruction: str, priority: str = "NORMAL") -> Dict:
         # inserting a second queue row here (without uir_uid) produced a FAILED job.
         uir_query = """
             INSERT INTO intelligence_records (
-                source_type, source_agent, source_name, content_headline, content_summary, domain, priority
-            ) VALUES ('HUMINT', 'director', 'Director', 'DIRECTOR TASKING', %s, 'UNKNOWN', %s)
+                source_type, source_id, source_agent, source_name, content_headline, content_raw, body_status, domain, priority
+            ) VALUES ('HUMINT', 'director', 'director', 'Director', 'DIRECTOR TASKING', %s, 'OK', 'UNKNOWN', %s)
             RETURNING uid
         """
         uir_id = db.execute_query(uir_query, (instruction, priority), fetch=True)[0]['uid']
@@ -212,7 +223,10 @@ def get_system_health() -> Dict:
         stats = db.execute_query("""
             SELECT
                 (SELECT count(*) FROM intelligence_records) as total_records,
-                (SELECT count(*) FROM entities) as total_entities,
+                (SELECT count(*) FROM entities WHERE resolution = 'RESOLVED' AND origin <> 'geonames') as total_entities,
+                (SELECT count(*) FROM events) as total_events,
+                (SELECT count(*) FROM relations) as total_relations,
+                (SELECT count(*) FROM entities WHERE resolution = 'NEEDS_REVIEW') as entities_needing_review,
                 (SELECT count(*) FROM analysis_queue WHERE status = 'PENDING') as pending_jobs,
                 (SELECT count(*) FROM analysis_queue WHERE status = 'FAILED') as failed_jobs,
                 (SELECT count(*) FROM intelligence_clusters WHERE status = 'ACTIVE') as active_clusters

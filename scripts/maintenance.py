@@ -1,59 +1,32 @@
-from loguru import logger
-import sys
+"""Database maintenance: vacuum the hot tables and prune local entities nobody mentions."""
 import os
+import sys
 
-# Add src to path for internal imports
 sys.path.append(os.path.join(os.getcwd(), "src"))
+from loguru import logger
+
 from pia.core.database import DatabaseManager
+
 
 def run_maintenance():
     db = DatabaseManager()
-    logger.info("🛠️ STARTING SYSTEM MAINTENANCE: Optimizing Brain Integrity")
-    
+    logger.info("Maintenance: vacuum + prune")
     try:
-        # 1. Clear AGE Cache Leaks (Checkpoints flush memory buffers)
-        logger.info("   Executing Database Checkpoint...")
-        db.execute_query("CHECKPOINT;")
-        
-        # 2. Re-index and Vacuum (Crucial for high-velocity Timescale and Graph tables)
-        logger.info("   Performing VACUUM ANALYZE on core tables...")
-        tables = [
-            'intelligence_records', 
-            'analysis_queue', 
-            'entities', 
-            'entity_relationships',
-            'intelligence_clusters'
-        ]
-        for table in tables:
+        for table in ('intelligence_records', 'analysis_queue', 'entities', 'entity_aliases', 'mentions', 'events', 'relations'):
             db.execute_query(f"VACUUM ANALYZE {table};")
-            logger.info(f"      Optimized: {table}")
-
-        # 3. Purge only true orphans: entities no record references and that hold
-        #    no relationships. (The old rule deleted every analyst-created entity
-        #    under confidence 0.4 after 24h, cascading their relationships.)
-        logger.info("   Purging orphan entities...")
-        orphans = db.execute_query("""
+        # Local (non-Wikidata, non-GeoNames) entities that nothing references any more
+        removed = db.execute_query("""
             DELETE FROM entities e
-            WHERE e.entity_type <> 'LOCATION'
-              AND COALESCE(array_length(e.uir_refs, 1), 0) = 0
-              AND e.last_seen < NOW() - INTERVAL '7 days'
-              AND NOT EXISTS (SELECT 1 FROM entity_relationships r
-                              WHERE r.entity_a_id = e.entity_id OR r.entity_b_id = e.entity_id)
+            WHERE e.qid IS NULL AND e.origin = 'llm' AND e.last_seen < NOW() - INTERVAL '30 days'
+              AND NOT EXISTS (SELECT 1 FROM mentions m WHERE m.entity_id = e.entity_id)
+              AND NOT EXISTS (SELECT 1 FROM events x WHERE x.actor_id = e.entity_id OR x.target_id = e.entity_id OR x.location_id = e.entity_id)
             RETURNING name
         """, fetch=True) or []
-        # Keep the AGE graph in step with the tables.
-        for row in orphans:
-            try:
-                db.execute_cypher('pia_graph', "MATCH (n:ENTITY {name: $name}) DETACH DELETE n", {"name": row['name']})
-            except Exception as e:
-                logger.warning(f"      Graph cleanup failed for {row['name']}: {e}")
-        logger.info(f"      Removed {len(orphans)} orphan entities.")
-
-        logger.success("✅ MAINTENANCE COMPLETE: Brain optimized.")
-    except Exception as e:
-        logger.error(f"Maintenance failed: {e}")
+        db.execute_query("DELETE FROM resolution_cache WHERE fetched_at < NOW() - INTERVAL '30 days'")
+        logger.success(f"Maintenance complete: {len(removed)} orphan entities removed")
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     run_maintenance()

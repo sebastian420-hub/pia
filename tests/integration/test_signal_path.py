@@ -15,15 +15,15 @@ def test_01_extension_integrity(db):
     """Confirm the Five Pillar extensions are functional."""
     query = """
     SELECT extname FROM pg_extension 
-    WHERE extname IN ('postgis', 'timescaledb', 'vector', 'age', 'pg_cron');
+    WHERE extname IN ('postgis', 'timescaledb', 'vector', 'vectorscale', 'pg_trgm', 'unaccent');
     """
     results = db.execute_query(query, fetch=True)
     extensions = [r['extname'] for r in results]
-    assert len(extensions) == 5, f"Missing extensions. Found: {extensions}"
+    assert len(extensions) == 6, f"Missing extensions. Found: {extensions}"
 
 def test_02_geographic_baseline(db):
     """Verify that Tier 1 seeding (GeoNames) is present."""
-    query = "SELECT count(*) FROM entities WHERE entity_type = 'LOCATION';"
+    query = "SELECT count(*) FROM entities WHERE kind = 'PLACE' AND origin = 'geonames';"
     result = db.execute_query(query, fetch=True)
     count = result[0]['count']
     assert count >= 30000, f"Geographic baseline missing or incomplete. Count: {count}"
@@ -38,9 +38,9 @@ def test_03_signal_propagation_heartbeat(db):
     # 1. Insert a Mock UIR
     db.execute_query("""
         INSERT INTO intelligence_records (
-            uid, source_type, source_agent, content_headline, domain, confidence, priority
+            uid, source_type, source_id, source_agent, content_headline, domain, confidence, priority
         ) VALUES (
-            %s, 'SYSTEM', 'e2e_tester', 'E2E Signal Test', 'NATURAL', 0.1, 'HIGH'
+            %s, 'SYSTEM', 'director', 'e2e_tester', 'E2E Signal Test', 'NATURAL', 0.1, 'HIGH'
         );
     """, (test_uid,))
     

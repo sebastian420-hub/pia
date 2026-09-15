@@ -14,8 +14,7 @@ services:
       - pia_pgdata:/var/lib/postgresql/data
     command: >
       postgres 
-      -c shared_preload_libraries='timescaledb,pg_cron,age'
-      -c cron.database_name='pia'
+      -c shared_preload_libraries='timescaledb'
       -c max_connections=200
       -c shared_buffers=1GB
     healthcheck:
@@ -96,6 +95,7 @@ services:
       - LLM_MODEL=${LLM_MODEL}
       - LLM_MODEL_POOL=${LLM_MODEL_POOL:-}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-openai/text-embedding-3-small}
+      - WIKIDATA_MIN_INTERVAL_SEC=${WIKIDATA_MIN_INTERVAL_SEC:-1.0}
     depends_on:
       pia_init:
         condition: service_completed_successfully
@@ -117,6 +117,7 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - LLM_MODEL=${LLM_MODEL}
       - LLM_MODEL_POOL=${LLM_MODEL_POOL:-}
+      - WIKIDATA_MIN_INTERVAL_SEC=${WIKIDATA_MIN_INTERVAL_SEC:-1.0}
     depends_on:
       pia_init:
         condition: service_completed_successfully

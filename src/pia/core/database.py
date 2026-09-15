@@ -1,7 +1,4 @@
-import json
 import os
-import re
-import secrets
 from contextlib import contextmanager
 
 import psycopg2.extensions
@@ -11,22 +8,6 @@ from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 
 load_dotenv()
-
-# Relationship labels are the one thing Cypher cannot take as a parameter,
-# so they are validated against this shape (and the NLP verb allowlist) before use.
-CYPHER_LABEL_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,39}$")
-
-
-class CypherLabelError(ValueError):
-    """Raised when a relationship label is not a safe Cypher identifier."""
-
-
-def assert_safe_label(label: str) -> str:
-    """Returns the label if it is a safe Cypher identifier, else raises."""
-    if not isinstance(label, str) or not CYPHER_LABEL_RE.match(label):
-        raise CypherLabelError(f"Unsafe Cypher label: {label!r}")
-    return label
-
 
 class DatabaseManager:
     """Manages thread-safe database connection pooling for PIA agents."""
@@ -83,55 +64,15 @@ class DatabaseManager:
                 if fetch:
                     return cur.fetchall()
 
-    def execute_cypher(self, graph_name: str, cypher_query: str, params: dict = None):
-        """
-        Executes a Cypher query in Apache AGE safely.
-
-        - Data never goes into the query text: values go in `params` and are
-          referenced as $name inside the Cypher text. AGE only accepts the
-          parameter map through a prepared statement, hence PREPARE / EXECUTE /
-          DEALLOCATE on one connection.
-        - AGE requires the Cypher text to be a dollar-quoted constant, so it is
-          wrapped in a tag with 128 random bits ($pia_<hex>$ ... $pia_<hex>$).
-          Nothing in the text can close that quote, and the text itself carries
-          no user data anyway.
-        - Relationship labels cannot be parameters: validate them with
-          `assert_safe_label` before formatting them into `cypher_query`.
-
-        Returns a list of dicts with one key, 'v', holding the agtype text of each row.
-        """
-        if not re.fullmatch(r"[A-Za-z0-9_]+", graph_name or ""):
-            raise ValueError(f"Unsafe graph name: {graph_name!r}")
-        tag = f"$pia_{secrets.token_hex(16)}$"
-        if tag in cypher_query:  # astronomically unlikely; refuse rather than guess
-            raise ValueError("Cypher text collides with the quote tag")
-        param_json = json.dumps(params or {})
+    def execute_values(self, query: str, rows, template: str = None, page_size: int = 500):
+        """Bulk INSERT ... VALUES %s using psycopg2.extras.execute_values (autocommit)."""
+        if not rows:
+            return
+        from psycopg2.extras import execute_values
         with self.get_connection() as conn:
             conn.autocommit = True
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("LOAD 'age'; SET search_path = public, ag_catalog;")
-                cur.execute(
-                    f"PREPARE _pia_cypher(agtype) AS "
-                    f"SELECT * FROM cypher('{graph_name}', {tag}{cypher_query}{tag}, $1) AS (v agtype);"
-                )
-                try:
-                    cur.execute("EXECUTE _pia_cypher(%s::agtype);", (param_json,))
-                    return cur.fetchall() if cur.description else []
-                finally:
-                    cur.execute("DEALLOCATE _pia_cypher;")
-
-    @staticmethod
-    def parse_agtype(value):
-        """Best-effort conversion of an agtype text value to Python (maps/lists/scalars)."""
-        if value is None:
-            return None
-        text = str(value)
-        # AGE appends ::vertex / ::edge / ::path to composite values
-        text = re.sub(r"::(vertex|edge|path)$", "", text.strip())
-        try:
-            return json.loads(text)
-        except (ValueError, TypeError):
-            return text
+            with conn.cursor() as cur:
+                execute_values(cur, query, rows, template=template, page_size=page_size)
 
     def close(self):
         """Closes all connections in the pool."""

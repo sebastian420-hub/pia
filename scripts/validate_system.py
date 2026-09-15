@@ -65,9 +65,6 @@ def deploy_fresh_schema(cur):
         with open(os.path.join(SCHEMA_DIR, f_name), 'r', encoding='utf-8') as f:
             cur.execute(f.read())
 
-    logger.info("Step 3: Graph initialization...")
-    cur.execute("LOAD 'age'; SET search_path = public, ag_catalog; SELECT create_graph('pia_graph');")
-
     logger.info("Step 3.5: RLS Role Initialization...")
     try:
         cur.execute("CREATE ROLE pia_client LOGIN PASSWORD %s", (RLS_ROLE_PASSWORD,))
@@ -81,7 +78,23 @@ def deploy_fresh_schema(cur):
     cur.execute("CREATE TEMP TABLE t_geo (geonameid INT, name TEXT, asciiname TEXT, alternatenames TEXT, latitude FLOAT, longitude FLOAT, feature_class TEXT, feature_code TEXT, country_code TEXT, cc2 TEXT, admin1 TEXT, admin2 TEXT, admin3 TEXT, admin4 TEXT, population BIGINT, elevation TEXT, dem TEXT, timezone TEXT, modification_date DATE);")
     with open(data_path, 'r', encoding='utf-8') as f:
         cur.copy_from(f, 't_geo', sep='\t', null='')
-    cur.execute("INSERT INTO entities (entity_type, name, canonical_name, aliases, description, confidence, watch_status, primary_geo) SELECT 'LOCATION', name, asciiname, string_to_array(alternatenames, ','), 'City', 0.99, 'PASSIVE', ST_SetSRID(ST_MakePoint(longitude, latitude), 4326) FROM t_geo;")
+    # GeoNames cities become PLACE entities (local ids; Wikidata places get Q-ids when resolved)
+    cur.execute("""
+        INSERT INTO entities (kind, name, description, resolution, origin, primary_geo, metadata)
+        SELECT 'PLACE', name, 'City in ' || country_code, 'LOCAL', 'geonames',
+               ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+               jsonb_build_object('geonameid', geonameid, 'country_code', country_code, 'population', population)
+        FROM t_geo
+    """)
+    cur.execute("""
+        INSERT INTO entity_aliases (entity_id, alias, alias_norm, source)
+        SELECT e.entity_id, x.alias, lower(unaccent(x.alias)), 'geonames'
+        FROM entities e
+        JOIN t_geo g ON (e.metadata->>'geonameid')::int = g.geonameid
+        CROSS JOIN LATERAL unnest(ARRAY[g.name, g.asciiname] || string_to_array(COALESCE(g.alternatenames,''), ',')) AS x(alias)
+        WHERE e.origin = 'geonames' AND x.alias <> '' AND length(x.alias) BETWEEN 2 AND 80
+        ON CONFLICT DO NOTHING
+    """)
 
 
 def apply_migrations(cur):
@@ -114,7 +127,7 @@ def main():
     conn.autocommit = True
     cur = conn.cursor()
 
-    cur.execute("SELECT to_regclass('public.flight_tracks');")
+    cur.execute("SELECT to_regclass('public.entities');")
     if cur.fetchone()[0] is not None:
         logger.info("Schema already deployed. Skipping base schema and seeding.")
     else:
