@@ -23,6 +23,9 @@ KIND_COMPAT = {  # a hint from the extractor vs the kind Wikidata gives
     "UNKNOWN": set(KINDS), None: set(KINDS),
 }
 CACHE_TTL = timedelta(days=7)
+# "US Environmental Protection Agency" is filed under "United States …" on Wikidata
+ABBREVIATIONS = {"us": "United States", "u s": "United States", "uk": "United Kingdom", "un": "United Nations",
+                 "eu": "European Union", "nyc": "New York City", "la": "Los Angeles", "dc": "Washington, D.C."}
 AUTO_MARGIN = 1.5
 AUTO_MIN = 3.0
 
@@ -38,8 +41,11 @@ class Resolver:
     # ── public ────────────────────────────────────────────────────────────────
 
     def resolve(self, surface: str, kind_hint: Optional[str] = None, role: str = "MENTIONED",
-                context: Optional[dict] = None) -> Optional[dict]:
-        """Returns an entity dict (entity_id, qid, kind, name, resolution) or None (rejected)."""
+                context: Optional[dict] = None, local_only: bool = False) -> Optional[dict]:
+        """
+        Returns an entity dict (entity_id, qid, kind, name, resolution) or None (rejected).
+        local_only: never call Wikidata (high-volume sources such as GDELT); unknown names return None.
+        """
         context = context or {}
         surface = (surface or "").strip()
         if not surface or looks_generic(surface):
@@ -53,9 +59,11 @@ class Resolver:
                 ent = dict(ent, role="GOVERNMENT")
                 return ent
 
-        local = self._lookup_local(norm, kind_hint, context)
+        local = self._lookup_local(norm, kind_hint, context, strict_country=local_only)
         if local:
             return local
+        if local_only:
+            return None
 
         candidates = self._candidates(surface, norm)
         if candidates is None:   # Wikidata unreachable / rate-limited: park it, retried soon by the maintenance agent
@@ -113,7 +121,7 @@ class Resolver:
                 metadata = COALESCE(entities.metadata, '{}'::jsonb) || EXCLUDED.metadata, updated_at = NOW()
             RETURNING entity_id, qid, kind, name, resolution
         """, (parsed["qid"], kind, parsed["label"], parsed.get("description"), parsed.get("country_qid"), geo,
-              parsed.get("sitelinks", 0), json.dumps({"p31": parsed["p31"][:5]})), fetch=True)
+              parsed.get("sitelinks", 0), json.dumps({k: v for k, v in {"p31": parsed["p31"][:5], "iso3": parsed.get("iso3"), "iso2": parsed.get("iso2")}.items() if v})), fetch=True)
         ent = dict(rows[0])
         eid = ent["entity_id"]
 
@@ -128,7 +136,7 @@ class Resolver:
 
     # ── internals ─────────────────────────────────────────────────────────────
 
-    def _lookup_local(self, norm: str, kind_hint, context) -> Optional[dict]:
+    def _lookup_local(self, norm: str, kind_hint, context, strict_country: bool = False) -> Optional[dict]:
         rows = self.db.execute_query("""
             SELECT e.entity_id, e.qid, e.kind, e.name, e.resolution, e.sitelinks, e.country_qid,
                    COALESCE((e.metadata->>'population')::bigint, 0) AS population
@@ -136,11 +144,14 @@ class Resolver:
             WHERE a.alias_norm = %s AND e.resolution IN ('RESOLVED','LOCAL')
         """, (norm,), fetch=True) or []
         rows = [r for r in rows if r["kind"] in KIND_COMPAT.get(kind_hint, set(KINDS))]
+        ctx_country = context.get("country_qid")
+        if strict_country and ctx_country:
+            # "Supreme Court" from a Pakistani story must not become the US Supreme Court
+            rows = [r for r in rows if r["kind"] == "COUNTRY" or not r["country_qid"] or r["country_qid"] == ctx_country]
         if not rows:
             return None
         if len(rows) == 1:
             return dict(rows[0])
-        ctx_country = context.get("country_qid")
 
         def rank(r):
             return ((r["country_qid"] == ctx_country) if ctx_country else 0, r["sitelinks"] or 0, r["population"] or 0)
@@ -154,6 +165,11 @@ class Resolver:
             return cached[0]["candidates"]
         try:
             hits = wikidata.search(surface, limit=5)
+            first = normalize(surface).split(" ", 1)[0] if " " in normalize(surface) else None
+            if first in ABBREVIATIONS:
+                expanded = ABBREVIATIONS[first] + " " + surface.split(" ", 1)[1]
+                seen = {h["qid"] for h in hits}
+                hits += [h for h in wikidata.search(expanded, limit=5) if h["qid"] not in seen]
             parsed = wikidata.get_entities([h["qid"] for h in hits]) if hits else {}
             cands = [dict(h, parsed=parsed[h["qid"]]) for h in hits if h["qid"] in parsed]
         except Exception as e:

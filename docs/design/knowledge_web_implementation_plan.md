@@ -1,6 +1,7 @@
 # Knowledge Web — Implementation Plan
 
-**Status:** K0–K3 + K5 (backend) BUILT 2026-09-15 on a wiped database (schema v2, AGE removed). Backbone loading in progress. K4 (GDELT), K6–K8 (UI, assistant tools) pending.
+**Status:** K0–K7 BUILT 2026-09-15 (schema v2, resolver + Wikidata backbone, article bodies, event extraction, GDELT, relations, API, entity card, events layer, 2-D web with evidence, review page). Backbone load still running in the background. K8 (assistant tools) pending. Screenshots: `ui_research/kg_*.{jpg,png}`.
+**Deviations (continued):** GDELT events require a resolved target for directed actions and ≥ 10 mentions for target-less ones, and the actor country code is used to reject wrong-country alias hits (the Pakistani "Supreme Court" must not become the US one); GDELT link-reports are hidden from the feed/archive (`metadata.skip_analysis`). Globe layers are memoised components with constant Cesium objects — inline `new DistanceDisplayCondition()` per render froze the page with 3,000 cameras. The 3-D force graph was replaced by react-force-graph-2d.
 **Deviations:** schema v2 written directly instead of migrations 010–016 (no data to preserve); P31→kind classification walks `subclass of` through the entity API instead of SPARQL (SPARQL timed out); a cross-process Wikidata rate limit (advisory lock + `rate_limits` table) was needed once three analysts, the maintenance agent and the seed script ran together.
 **Follows from:** [`knowledge_web_research.md`](knowledge_web_research.md) (why the current graph fails)
 and the 2026-09-15 decisions:

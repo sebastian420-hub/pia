@@ -106,7 +106,7 @@ def get_entities(qids: Iterable[str]) -> Dict[str, dict]:
         batch = qids[i:i + 50]
         r = _get({"action": "wbgetentities", "ids": "|".join(batch),
                   "props": "labels|descriptions|aliases|claims|sitelinks",
-                  "languages": "en|de|fr|es|ru|zh|ar", "format": "json"}, timeout=40)
+                  "languages": "en|en-gb|de|fr|es|it|pt|nl", "format": "json"}, timeout=40)
         for qid, ent in (r.json().get("entities") or {}).items():
             if "missing" in ent:
                 continue
@@ -117,7 +117,8 @@ def get_entities(qids: Iterable[str]) -> Dict[str, dict]:
 def parse_entity(ent: dict) -> dict:
     qid = ent["id"]
     labels = ent.get("labels") or {}
-    label = labels.get("en", {}).get("value") or next((v.get("value") for v in labels.values() if v.get("value")), qid)
+    label = next((labels[lg]["value"] for lg in ("en", "en-gb", "de", "fr", "es", "it", "pt", "nl") if lg in labels and labels[lg].get("value")), None) \
+        or next((v.get("value") for v in labels.values() if v.get("value")), qid)
     desc = (ent.get("descriptions") or {}).get("en", {}).get("value")
     aliases = [a["value"] for a in (ent.get("aliases") or {}).get("en", [])]
     p31 = [v["id"] for v, _ in _claim_values(ent, "P31") if isinstance(v, dict) and "id" in v]
@@ -127,6 +128,8 @@ def parse_entity(ent: dict) -> dict:
             coords = (v["latitude"], v["longitude"])
             break
     country = next((v["id"] for v, _ in _claim_values(ent, "P17") if isinstance(v, dict) and "id" in v), None)
+    iso3 = next((v for v, _ in _claim_values(ent, "P298") if isinstance(v, str)), None)
+    iso2 = next((v for v, _ in _claim_values(ent, "P297") if isinstance(v, str)), None)
     relations = []
     for prop, (kind, rel_label, directed) in WIKIDATA_RELATION_PROPERTIES.items():
         for v, ended in _claim_values(ent, prop):
@@ -135,7 +138,7 @@ def parse_entity(ent: dict) -> dict:
     return {
         "qid": qid, "label": label, "description": desc, "aliases": aliases, "p31": p31,
         "coords": coords, "country_qid": country, "sitelinks": len(ent.get("sitelinks") or {}),
-        "relations": relations,
+        "iso3": iso3, "iso2": iso2, "relations": relations,
     }
 
 

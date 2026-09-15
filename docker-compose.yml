@@ -182,6 +182,26 @@ services:
       pia_init:
         condition: service_completed_successfully
 
+  gdelt_agent:
+    build:
+      context: .
+      dockerfile: ./infra/agents/Dockerfile
+    container_name: gdelt_agent
+    restart: always
+    volumes:
+      - .:/app
+    command: ["python", "src/pia/agents/gdelt_agent.py"]
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=pia
+      - DB_PASSWORD=${DB_PASSWORD:-password}
+      - DB_NAME=pia
+      - GDELT_MIN_MENTIONS=${GDELT_MIN_MENTIONS:-3}
+      - GDELT_MIN_ABS_GOLDSTEIN=${GDELT_MIN_ABS_GOLDSTEIN:-5}
+    depends_on:
+      pia_init:
+        condition: service_completed_successfully
+
   camera_agent:
     build:
       context: .
