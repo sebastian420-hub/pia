@@ -1,3 +1,7 @@
+> **Historical document (2026-03-02).** Several claims below ("100% stable", RLS enforced) described
+> the schema, not the running system; see `docs/STATUS.md` and `docs/fix_implementation_plan.md`
+> for the current state.
+
 # 🚀 BURMANLABS: Systematic End-to-End Testing & Edge Case Report
 
 **Document Version:** 1.0

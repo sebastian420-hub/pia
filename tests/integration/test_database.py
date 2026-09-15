@@ -1,5 +1,7 @@
 import pytest
 
+pytestmark = pytest.mark.integration  # needs the live docker stack
+
 def test_extensions_installed(cursor):
     """Verify all 5 core extensions are enabled in the database."""
     cursor.execute("SELECT extname FROM pg_extension;")

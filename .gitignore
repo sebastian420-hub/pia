@@ -1,10 +1,10 @@
 # Data
 *.zip
-*.txt
+cities15000.txt
+cities.zip
 *.csv
 *.tsv
 data/
-ingestion/geo/cities15000.txt
 
 # Database
 pgdata/

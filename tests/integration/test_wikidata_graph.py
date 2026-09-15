@@ -1,5 +1,6 @@
 import pytest
-import uuid
+
+pytestmark = pytest.mark.integration  # needs the live docker stack
 from pia.core.database import DatabaseManager
 from pia.ingestion.wikidata_ingestor import WikidataIngestor
 

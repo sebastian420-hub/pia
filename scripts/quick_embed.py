@@ -13,7 +13,7 @@ DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NA
 
 llm_client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key=os.environ.get("OPENROUTER_API_KEY", "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"),
+    api_key=os.environ["OPENROUTER_API_KEY"]  # no default: fail loudly if unset,
 )
 
 async def generate_embedding(text):

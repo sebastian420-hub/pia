@@ -1,11 +1,10 @@
 import requests
 from loguru import logger
 import xml.etree.ElementTree as ET
-from datetime import datetime
-import json
 
 from pia.core.base_agent import BaseAgent
 from pia.core.database import DatabaseManager
+from pia.core.heuristics import classify_domain, classify_priority
 
 class NewsAgent(BaseAgent):
     """Polls public RSS feeds for OSINT and ingests into PIA."""
@@ -49,7 +48,6 @@ class NewsAgent(BaseAgent):
             title_el = item.find('title')
             link_el = item.find('link')
             desc_el = item.find('description')
-            pubdate_el = item.find('pubDate')
 
             if title_el is None or link_el is None:
                 continue
@@ -99,18 +97,9 @@ class NewsAgent(BaseAgent):
 
         logger.info(f"New UNIQUE OSINT detected: {title} {'[MISSION MATCH]' if mission_match else ''}")
 
-        # 4. Domain and Priority heuristics
-        domain = 'POLITICAL'
-        lower_text = normalized_content
-        if any(word in lower_text for word in ['military', 'war', 'army', 'navy', 'missile', 'strike']):
-            domain = 'MILITARY'
-        elif any(word in lower_text for word in ['market', 'bank', 'economy', 'stock', 'trade']):
-            domain = 'FINANCIAL'
-
-        # Auto-escalate if mission matches
-        priority = 'HIGH' if mission_match else 'NORMAL'
-        if any(word in lower_text for word in ['dead', 'killed', 'blast', 'critical', 'urgent', 'attack']):
-            priority = 'HIGH'
+        # 4. Domain and Priority heuristics (mission match auto-escalates)
+        domain = classify_domain(normalized_content)
+        priority = classify_priority(normalized_content, mission_match)
 
         # 5. Atomic Insert
         self.db.execute_query(

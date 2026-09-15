@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     build: ./infra/postgres
@@ -7,11 +5,11 @@ services:
     restart: always
     environment:
       POSTGRES_USER: pia
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
       POSTGRES_DB: pia
-      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "5432:5432"
+      # Bound to the host's loopback only; never reachable from the LAN.
+      - "127.0.0.1:5432:5432"
     volumes:
       - pia_pgdata:/var/lib/postgresql/data
     command: >
@@ -37,9 +35,9 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_USER=pia
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
-      - PGPASSWORD=password
+      - PGPASSWORD=${DB_PASSWORD:-password}
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,7 +53,7 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_USER=pia
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
     depends_on:
       pia_init:
@@ -73,7 +71,7 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_USER=pia
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
     depends_on:
       pia_init:
@@ -92,10 +90,12 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_USER=pia
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - LLM_MODEL=${LLM_MODEL}
+      - LLM_MODEL_POOL=${LLM_MODEL_POOL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-openai/text-embedding-3-small}
     depends_on:
       pia_init:
         condition: service_completed_successfully
@@ -112,10 +112,11 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_USER=pia
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - LLM_MODEL=${LLM_MODEL}
+      - LLM_MODEL_POOL=${LLM_MODEL_POOL:-}
     depends_on:
       pia_init:
         condition: service_completed_successfully
@@ -125,15 +126,17 @@ services:
       context: .
       dockerfile: ./infra/agents/Dockerfile
     container_name: maritime_agent
-    restart: always
+    restart: on-failure
     volumes:
       - .:/app
     command: ["python", "src/pia/agents/maritime_agent.py"]
     environment:
       - DB_HOST=postgres
       - DB_USER=pia
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
+      # No real feed exists yet; the agent exits unless this is true.
+      - SIMULATED_SENSORS=${SIMULATED_SENSORS:-false}
     depends_on:
       pia_init:
         condition: service_completed_successfully
@@ -143,15 +146,17 @@ services:
       context: .
       dockerfile: ./infra/agents/Dockerfile
     container_name: aviation_agent
-    restart: always
+    restart: on-failure
     volumes:
       - .:/app
     command: ["python", "src/pia/agents/aviation_agent.py"]
     environment:
       - DB_HOST=postgres
       - DB_USER=pia
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
+      # No real feed exists yet; the agent exits unless this is true.
+      - SIMULATED_SENSORS=${SIMULATED_SENSORS:-false}
     depends_on:
       pia_init:
         condition: service_completed_successfully
@@ -169,8 +174,33 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_USER=pia
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
+      - DOC_DIR=/app/data/documents
+    depends_on:
+      pia_init:
+        condition: service_completed_successfully
+
+  camera_agent:
+    build:
+      context: .
+      dockerfile: ./infra/agents/Dockerfile
+    container_name: camera_agent
+    restart: always
+    volumes:
+      - .:/app
+    command: ["python", "src/pia/agents/camera_agent.py"]
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=pia
+      - DB_PASSWORD=${DB_PASSWORD:-password}
+      - DB_NAME=pia
+      # comma-separated subset of providers, empty = all
+      - CAMERA_PROVIDERS=${CAMERA_PROVIDERS:-}
+      - CAMERA_LIST_REFRESH_MIN=${CAMERA_LIST_REFRESH_MIN:-60}
+      # US relay for NYC / Caltrans (optional)
+      - RELAY_URL=${RELAY_URL:-}
+      - RELAY_TOKEN=${RELAY_TOKEN:-}
     depends_on:
       pia_init:
         condition: service_completed_successfully
@@ -185,12 +215,14 @@ services:
       - .:/app
     command: ["python", "src/pia/api/mcp_server.py"]
     ports:
-      - "8000:8000"
+      # No auth on MCP: only ever expose it on the host's loopback.
+      - "127.0.0.1:${MCP_PORT:-8000}:8000"
     environment:
       - DB_HOST=postgres
       - DB_USER=pia
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
+      - MCP_HOST=0.0.0.0
     depends_on:
       pia_init:
         condition: service_completed_successfully
@@ -210,7 +242,7 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_USER=pia
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - LLM_MODEL=${LLM_MODEL}
@@ -228,13 +260,26 @@ services:
     restart: always
     ports:
       - "8001:8001"
+    volumes:
+      # Same host folder the document_agent watches
+      - ./data/documents:/app/data/documents
     environment:
       - DB_HOST=postgres
       - DB_USER=pia
-      - DB_PASSWORD=password
+      - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - LLM_MODEL=${LLM_MODEL}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-openai/text-embedding-3-small}
+      - PIA_API_TOKEN=${PIA_API_TOKEN}
+      - FRONTEND_ORIGINS=${FRONTEND_ORIGINS:-http://localhost:5173}
+      - DOC_DIR=/app/data/documents
+      - RELAY_URL=${RELAY_URL:-}
+      - RELAY_TOKEN=${RELAY_TOKEN:-}
+      - RELAY_START_CMD=${RELAY_START_CMD:-}
+      - RELAY_STOP_CMD=${RELAY_STOP_CMD:-}
+      - LIVE_IDLE_MINUTES=${LIVE_IDLE_MINUTES:-15}
+      - LIVE_COST_PER_HOUR_USD=${LIVE_COST_PER_HOUR_USD:-0.01}
     depends_on:
       postgres:
         condition: service_healthy

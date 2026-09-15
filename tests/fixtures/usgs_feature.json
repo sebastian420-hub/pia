@@ -1,0 +1,13 @@
+{
+  "type": "Feature",
+  "properties": {
+    "mag": 4.6, "place": "12 km SSE of Example, Alaska", "time": 1772000000000, "updated": 1772000100000,
+    "tz": null, "url": "https://earthquake.usgs.gov/earthquakes/eventpage/ak0000", "detail": null,
+    "felt": null, "cdi": null, "mmi": null, "alert": null, "status": "reviewed", "tsunami": 0, "sig": 326,
+    "net": "ak", "code": "0000", "ids": ",ak0000,", "sources": ",ak,", "types": ",origin,",
+    "nst": null, "dmin": null, "rms": 0.6, "gap": null, "magType": "ml", "type": "earthquake",
+    "title": "M 4.6 - 12 km SSE of Example, Alaska"
+  },
+  "geometry": {"type": "Point", "coordinates": [-150.12, 61.45, 33.0]},
+  "id": "ak0000"
+}

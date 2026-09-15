@@ -1,8 +1,5 @@
 import requests
 from loguru import logger
-from typing import List
-import json
-
 from pia.core.base_agent import BaseAgent
 from pia.core.database import DatabaseManager
 from pia.models.seismic import SeismicEvent
@@ -18,7 +15,7 @@ class SeismicAgent(BaseAgent):
 
     def poll(self):
         logger.debug(f"{self.name} polling USGS feed...")
-        response = requests.get(self.USGS_URL)
+        response = requests.get(self.USGS_URL, timeout=30)
         response.raise_for_status()
         data = response.json()
 

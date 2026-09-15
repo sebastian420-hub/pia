@@ -43,6 +43,7 @@ SELECT add_continuous_aggregate_policy('flight_hourly_anomalies',
     schedule_interval => INTERVAL '5 minutes');
 
 -- 2. SATELLITE POSITIONS
+-- RESERVED: no code writes this table yet (see docs/STATUS.md).
 CREATE TABLE satellite_positions (
     time              TIMESTAMPTZ NOT NULL,
     norad_id          INTEGER NOT NULL,

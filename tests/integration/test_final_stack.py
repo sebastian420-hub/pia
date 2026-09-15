@@ -1,6 +1,6 @@
 import pytest
-import uuid
-import time
+
+pytestmark = pytest.mark.integration  # needs the live docker stack
 from pia.core.database import DatabaseManager
 from pia.api.mcp_server import get_active_clusters, get_system_health
 

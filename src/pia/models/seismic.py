@@ -1,6 +1,6 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 
 class SeismicGeometry(BaseModel):
     """Represents the GeoJSON Point geometry for a seismic event."""
@@ -45,7 +45,7 @@ class SeismicEvent(BaseModel):
     @property
     def event_time(self) -> datetime:
         """Converts the USGS Unix millisecond timestamp to a Python datetime."""
-        return datetime.fromtimestamp(self.properties.time / 1000.0)
+        return datetime.fromtimestamp(self.properties.time / 1000.0, tz=timezone.utc)
 
     @property
     def lon(self) -> float:

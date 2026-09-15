@@ -1,12 +1,45 @@
 import os
 import json
 import random
-from typing import List, Dict, Optional
+from typing import List, Dict
 from openai import OpenAI
 from loguru import logger
 from dotenv import load_dotenv
 
 load_dotenv()
+
+PROJECT_URL = "https://github.com/sebastian420-hub/pia"
+
+
+class ExtractionError(RuntimeError):
+    """The LLM call failed or returned something that is not the expected JSON."""
+
+
+def parse_llm_json(content: str) -> Dict:
+    """
+    Strips markdown fences and parses the JSON object an extraction prompt asked for.
+    Raises ExtractionError on empty, truncated, or non-object output so callers can
+    mark the job FAILED instead of silently storing nothing.
+    """
+    if not content or not content.strip():
+        raise ExtractionError("Empty response from LLM")
+    text = content.strip()
+    if "```json" in text:
+        text = text.split("```json", 1)[1].split("```", 1)[0].strip()
+    elif "```" in text:
+        text = text.split("```", 1)[1].split("```", 1)[0].strip()
+    # Some models add prose before/after the object: keep the outermost braces.
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise ExtractionError(f"No JSON object in LLM output: {text[:120]!r}")
+    try:
+        data = json.loads(text[start:end + 1])
+    except json.JSONDecodeError as e:
+        raise ExtractionError(f"Invalid/truncated JSON from LLM: {e}") from e
+    if not isinstance(data, dict):
+        raise ExtractionError("LLM output is not a JSON object")
+    return data
+
 
 class NLPManager:
     """
@@ -46,19 +79,27 @@ class NLPManager:
         self.api_key = os.getenv("OPENROUTER_API_KEY")
         self.base_url = "https://openrouter.ai/api/v1"
         
-        # Free Tier Model Rotation Pool to bypass strict rate limits
-        self.model_pool = [
-            "arcee-ai/trinity-large-preview:free",
-            "stepfun/step-3.5-flash:free",
+        # Model rotation pool (comma-separated LLM_MODEL_POOL, or a single LLM_MODEL).
+        # Default is the free tier; expect rate limits and lower extraction quality.
+        pool_env = os.getenv("LLM_MODEL_POOL") or os.getenv("LLM_MODEL") or (
+            "arcee-ai/trinity-large-preview:free,"
+            "stepfun/step-3.5-flash:free,"
             "z-ai/glm-4.5-air:free"
-        ]
-        
-        # Configure client with OpenRouter headers
+        )
+        self.model_pool = [m.strip() for m in pool_env.split(",") if m.strip()]
+        self.embedding_model = os.getenv("EMBEDDING_MODEL", "openai/text-embedding-3-small")
+        # Long document chunks (1500 chars) overflowed the old 500-token cap and
+        # produced truncated JSON.
+        self.max_output_tokens = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "1500"))
+
+        if not self.api_key:
+            logger.warning("OPENROUTER_API_KEY is not set; every LLM call will fail.")
+
         self.client = OpenAI(
-            base_url=self.base_url, 
-            api_key=self.api_key,
+            base_url=self.base_url,
+            api_key=self.api_key or "missing-openrouter-key",
             default_headers={
-                "HTTP-Referer": "https://github.com/google/gemini-cli", # Required by OpenRouter
+                "HTTP-Referer": PROJECT_URL,
                 "X-Title": "PIA-Core Intelligence Agent"
             }
         )
@@ -159,33 +200,18 @@ class NLPManager:
                     {"role": "system", "content": dynamic_system_prompt},
                     {"role": "user", "content": f"Analyze this intelligence report:\n\n{text}"}
                 ],
-                # Removed strict JSON formatting to prevent 'response_format is not supported' errors from mixed providers
+                # No response_format: several free providers reject it.
                 temperature=0.1,
-                max_tokens=500
+                max_tokens=self.max_output_tokens
             )
-            
-            content = response.choices[0].message.content
-            if not content:
-                raise ValueError("Empty response from LLM")
-
-            # Clean markdown code blocks if they exist
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
-
-            structured_data = json.loads(content)
-            logger.success(f"NLP: Successfully extracted {len(structured_data.get('entities', []))} entities using {selected_model}")
-            return structured_data
-
         except Exception as e:
-            logger.error(f"NLP Extraction failed with model {selected_model}: {e}")
-            # Mock data for when LLM is unavailable
-            return {
-                "entities": [], 
-                "relationships": [],
-                "summary": f"Extraction failed: {str(e)}"
-            }
+            raise ExtractionError(f"LLM call failed ({selected_model}): {e}") from e
+
+        structured_data = parse_llm_json(response.choices[0].message.content)
+        structured_data.setdefault("entities", [])
+        structured_data.setdefault("relationships", [])
+        logger.success(f"NLP: Extracted {len(structured_data['entities'])} entities using {selected_model}")
+        return structured_data
 
     def generate_embedding(self, text: str) -> List[float]:
         """
@@ -198,7 +224,7 @@ class NLPManager:
         try:
             # We use the standard OpenAI embedding model via OpenRouter
             response = self.client.embeddings.create(
-                model="openai/text-embedding-3-small",
+                model=self.embedding_model,
                 input=text
             )
             return response.data[0].embedding
@@ -235,13 +261,7 @@ class NLPManager:
                 temperature=0.0
             )
             
-            content = response.choices[0].message.content
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
-                
-            decision = json.loads(content)
+            decision = parse_llm_json(response.choices[0].message.content)
             logger.info(f"NLP Fusion Verification ({selected_model}): {decision.get('match')} ({decision.get('reason')})")
             return bool(decision.get('match'))
         except Exception as e:

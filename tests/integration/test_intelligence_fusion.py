@@ -1,4 +1,6 @@
 import pytest
+
+pytestmark = pytest.mark.integration  # needs the live docker stack
 import uuid
 import time
 from unittest.mock import patch

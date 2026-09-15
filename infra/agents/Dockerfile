@@ -9,9 +9,8 @@ RUN apt-get update && apt-get install -y libpq-dev gcc postgresql-client && rm -
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -e . 
 
-# Copy source code
+# Copy source code (configuration comes from the environment, never from a baked-in .env)
 COPY src/ src/
-COPY .env .env
 
 ENV PYTHONPATH=/app/src
 

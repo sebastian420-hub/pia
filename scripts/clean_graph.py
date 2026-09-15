@@ -1,3 +1,10 @@
+import os
+import sys
+
+if "--yes-really" not in sys.argv or os.getenv("PIA_ENV", "").lower() == "production":
+    print(f"{os.path.basename(__file__)} deletes graph data. Re-run with --yes-really (refused when PIA_ENV=production).")
+    sys.exit(2)
+
 from pia.core.database import DatabaseManager
 from loguru import logger
 

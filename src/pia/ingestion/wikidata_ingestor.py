@@ -1,12 +1,11 @@
-from loguru import logger
+import json
 import os
-import requests
-import tarfile
-from typing import Dict, List, Optional
-import psycopg2
-import psycopg2.extras
+from typing import List
 
-from pia.core.database import DatabaseManager
+from loguru import logger
+from psycopg2.extras import execute_values
+
+from pia.core.database import DatabaseManager, assert_safe_label, CypherLabelError
 
 class WikidataIngestor:
     """
@@ -39,65 +38,58 @@ class WikidataIngestor:
 
     def download_wikidata5m(self):
         """Downloads the core Wikidata5M dataset."""
-        # URLs for Wikidata5M (Subset from TransE/KE models)
-        url = "https://deepgraphlearning.github.io/project/wikidata5m"
+        # Dataset page: https://deepgraphlearning.github.io/project/wikidata5m
         logger.info(f"Please ensure you have downloaded the Wikidata5M TSV files to {self.data_dir}")
         # Note: In a full implementation, we would automate the download from a reliable mirror
 
-    def ingest_entities(self, file_path: str):
+    def ingest_entities(self, file_path: str, entity_type: str = "UNKNOWN"):
         """
-        Streams entity descriptions and performs bulk COPY into public.entities.
+        Streams entity descriptions and bulk-inserts them into public.entities.
         Matches Wikidata5M format: <QID> \t <Label> \t <Description>
+
+        The dataset does not carry a type, so rows are stored as UNKNOWN (honest)
+        rather than ORGANIZATION. Names/descriptions go through parameter binding,
+        so tabs, backslashes and quotes in labels are safe.
         """
         if not os.path.exists(file_path):
             logger.error(f"Entity file not found: {file_path}")
             return
 
         logger.info(f"Starting entity ingestion from {file_path}")
-        
-        # Use a temporary file to store formatted data for COPY
-        temp_buffer_path = "/tmp/entity_buffer.tsv"
-        batch_size = 50000
+        batch_size = 5000
+        batch = []
         count = 0
 
         with open(file_path, 'r', encoding='utf-8') as f_in:
-            f_out = open(temp_buffer_path, 'w', encoding='utf-8')
             for line in f_in:
-                parts = line.strip().split('\t')
-                if len(parts) < 2:
+                parts = line.rstrip('\n').split('\t')
+                if len(parts) < 2 or not parts[1]:
                     continue
-                
-                qid = parts[0]
-                name = parts[1]
+                qid, name = parts[0], parts[1]
                 desc = parts[2] if len(parts) > 2 else ""
-                
-                if not name:
-                    continue
-
-                f_out.write(f"ORGANIZATION\t{name}\t{{}}\t{desc}\t{{\"wikidata_id\": \"{qid}\"}}\n")
+                batch.append((entity_type, name, desc, json.dumps({"wikidata_id": qid})))
                 count += 1
-
-                if count % batch_size == 0:
-                    f_out.close()
-                    self._flush_buffer(temp_buffer_path)
+                if len(batch) >= batch_size:
+                    self._flush_batch(batch)
+                    batch = []
                     logger.info(f"Ingested {count} entities...")
-                    f_out = open(temp_buffer_path, 'w', encoding='utf-8')
+            if batch:
+                self._flush_batch(batch)
 
-            f_out.close()
-            # Flush remaining
-            if count % batch_size != 0:
-                self._flush_buffer(temp_buffer_path)
-        
         logger.success(f"Total entities ingested: {count}")
 
-    def _flush_buffer(self, buffer_path: str):
-        """Executes the PostgreSQL COPY command for the current buffer."""
+    def _flush_batch(self, batch: List[tuple]):
+        """Bulk insert with an explicit commit (the pooled connection is not in autocommit)."""
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
-                with open(buffer_path, 'r', encoding='utf-8') as f:
-                    cur.copy_from(f, 'entities', sep='\t', 
-                                 columns=('entity_type', 'name', 'aliases', 'description', 'metadata'))
-        # No need for manual commit if autocommit=True in DatabaseManager
+                execute_values(
+                    cur,
+                    "INSERT INTO entities (entity_type, name, description, metadata) VALUES %s "
+                    "ON CONFLICT DO NOTHING",
+                    batch,
+                    template="(%s, %s, %s, %s::jsonb)",
+                )
+            conn.commit()
 
     def ingest_relationships(self, file_path: str):
         """
@@ -156,10 +148,6 @@ class WikidataIngestor:
                     cur.execute(query, (rel_type, sub_qid, obj_qid))
             conn.commit()
 
-    def _safe_cypher_name(self, name: str) -> str:
-        """Escapes double quotes in entity names for safe Cypher injection."""
-        return name.replace('"', '\\"')
-
     def sync_to_age_graph(self):
         """
         Mirror relationship table data into the Apache AGE property graph.
@@ -185,16 +173,19 @@ class WikidataIngestor:
             return
 
         for row in rels:
-            # Use Cypher to MERGE nodes and CREATE edges
-            safe_a = self._safe_cypher_name(row['name_a'])
-            safe_b = self._safe_cypher_name(row['name_b'])
-            cypher = f"""
-                MERGE (a:ENTITY {{name: "{safe_a}"}})
-                MERGE (b:ENTITY {{name: "{safe_b}"}})
-                MERGE (a)-[r:{row['relationship_type']}]->(b)
-            """
+            # Names are Cypher parameters; only the validated label is formatted in.
             try:
-                self.db.execute_cypher('pia_graph', cypher)
+                label = assert_safe_label(row['relationship_type'])
+            except CypherLabelError as e:
+                logger.warning(f"Skipping edge: {e}")
+                continue
+            cypher = (
+                "MERGE (a:ENTITY {name: $name_a}) "
+                "MERGE (b:ENTITY {name: $name_b}) "
+                f"MERGE (a)-[r:{label}]->(b)"
+            )
+            try:
+                self.db.execute_cypher('pia_graph', cypher, {"name_a": row['name_a'], "name_b": row['name_b']})
             except Exception as e:
                 logger.warning(f"Failed to sync graph edge: {e}")
         

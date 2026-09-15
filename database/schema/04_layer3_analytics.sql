@@ -62,6 +62,7 @@ ALTER TABLE intelligence_records
 -- ════════════════════════════════════════════════════════════════
 -- LAYER 4: INTELLIGENCE DIGESTS
 -- ════════════════════════════════════════════════════════════════
+-- RESERVED: no code writes this table yet (see docs/STATUS.md).
 CREATE TABLE intelligence_digests (
     digest_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -93,6 +94,7 @@ CREATE INDEX idx_digest_pending ON intelligence_digests(created_at DESC) WHERE d
 -- ════════════════════════════════════════════════════════════════
 -- AGENT TASKS
 -- ════════════════════════════════════════════════════════════════
+-- RESERVED: no code writes this table yet (see docs/STATUS.md).
 CREATE TABLE agent_tasks (
     task_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     created_at        TIMESTAMPTZ DEFAULT NOW(),

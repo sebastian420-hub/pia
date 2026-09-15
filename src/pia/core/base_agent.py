@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+import json
+import socket
 import time
 from loguru import logger
 import signal
@@ -38,19 +40,36 @@ class BaseAgent(ABC):
         """Cleanup logic before exiting."""
         pass
 
+    def heartbeat(self, status: str = "OK", detail: dict = None):
+        """Upserts this agent's row in agent_heartbeats (if the agent has a self.db)."""
+        db = getattr(self, "db", None)
+        if db is None:
+            return
+        try:
+            db.execute_query("""
+                INSERT INTO agent_heartbeats (agent_name, agent_kind, hostname, last_beat, status, detail)
+                VALUES (%s, %s, %s, NOW(), %s, %s::jsonb)
+                ON CONFLICT (agent_name) DO UPDATE SET
+                    last_beat = NOW(), status = EXCLUDED.status, detail = EXCLUDED.detail, hostname = EXCLUDED.hostname
+            """, (self.name, type(self).__name__, socket.gethostname(), status, json.dumps(detail or {})))
+        except Exception as e:  # a missing table must never kill an agent
+            logger.debug(f"heartbeat skipped: {e}")
+
     def run(self):
         """Starts the agent's main execution loop."""
         self.setup()
         self.running = True
         logger.info(f"Agent {self.name} started (Polling every {self.interval_sec}s)")
-        
+
         while self.running:
             try:
                 self.poll()
+                self.heartbeat("OK", {"interval_sec": self.interval_sec})
             except Exception as e:
                 logger.error(f"Error in {self.name} polling loop: {e}")
+                self.heartbeat("ERROR", {"error": str(e)[:500]})
                 # Exponential backoff or simple sleep on error
                 time.sleep(10)
                 continue
-            
+
             time.sleep(self.interval_sec)

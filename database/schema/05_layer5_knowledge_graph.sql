@@ -77,6 +77,7 @@ CREATE INDEX idx_rel_invalid ON entity_relationships(updated_at DESC) WHERE stil
 -- ════════════════════════════════════════════════════════════════
 -- HISTORY TABLES
 -- ════════════════════════════════════════════════════════════════
+-- RESERVED: no code writes this table yet (see docs/STATUS.md).
 CREATE TABLE entity_profile_history (
     history_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     entity_id         UUID NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
@@ -97,6 +98,7 @@ CREATE TABLE entity_profile_history (
 CREATE INDEX idx_eph_entity ON entity_profile_history(entity_id, revised_at DESC);
 CREATE INDEX idx_eph_time ON entity_profile_history(revised_at DESC);
 
+-- RESERVED: no code writes this table yet (see docs/STATUS.md).
 CREATE TABLE cluster_revisions (
     revision_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     cluster_id        UUID NOT NULL REFERENCES intelligence_clusters(cluster_id) ON DELETE CASCADE,

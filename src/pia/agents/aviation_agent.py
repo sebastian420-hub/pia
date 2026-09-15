@@ -1,6 +1,8 @@
-import time, uuid, json, hashlib
+import hashlib
+import os
+import sys
 from loguru import logger
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pia.core.base_agent import BaseAgent
 from pia.core.database import DatabaseManager
@@ -8,20 +10,27 @@ from pia.core.database import DatabaseManager
 class AviationAgent(BaseAgent):
     """
     The Aviation Sentinel.
-    Polls ADS-B data and ingests aircraft movements into the Agency's spine.
+
+    There is no real ADS-B integration yet. This agent emits a fixed list of
+    SIMULATED aircraft hits and only runs when SIMULATED_SENSORS=true.
+    Simulated records are labelled 'SIMULATED ADS-B Feed' with confidence 0.1.
     """
 
+    SOURCE_NAME = "SIMULATED ADS-B Feed"
+
     def setup(self):
+        if os.getenv("SIMULATED_SENSORS", "false").lower() not in ("1", "true", "yes"):
+            logger.warning(f"{self.name}: no real ADS-B feed is implemented; set SIMULATED_SENSORS=true to emit demo data. Exiting.")
+            sys.exit(0)
         self.db = DatabaseManager()
-        # Ensure source authority exists
         self.db.execute_query(
-            "INSERT INTO source_authority (source_name, source_type, trust_score, notes) VALUES ('ADS-B Aviation Feed', 'SIGINT', 0.95, 'Real-time flight tracking') ON CONFLICT DO NOTHING"
+            "INSERT INTO source_authority (source_name, source_type, trust_score, notes) VALUES (%s, 'SIGINT', 0.1, 'Hardcoded demo aircraft; not real telemetry') ON CONFLICT DO NOTHING",
+            (self.SOURCE_NAME,)
         )
-        logger.info(f"{self.name} initialized for global aviation surveillance.")
+        logger.info(f"{self.name} initialized (SIMULATED aviation data).")
 
     def poll(self):
-        """Simulates/Polls real-time ADS-B flight hits."""
-        # Simulated high-interest targets
+        """Emits the fixed simulated flight hits."""
         flights = [
             {"callsign": "AF1", "icao24": "adf032", "reg": "28000", "alt": 35000, "lat": 38.8, "lon": -77.0, "squawk": "None"},
             {"callsign": "TITAN25", "icao24": "ae01ce", "reg": "62-4128", "alt": 28000, "lat": 52.5, "lon": 13.4, "squawk": "None"}, # RC-135V Rivet Joint
@@ -33,7 +42,7 @@ class AviationAgent(BaseAgent):
 
     def ingest_flight_hit(self, flight):
         """Converts a flight hit into a telemetry record and a UIR for the Brain."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         
         # 1. Store in Layer 1 (Telemetry - TimescaleDB)
         self.db.execute_query(
@@ -47,16 +56,16 @@ class AviationAgent(BaseAgent):
         # 2. Convert to Layer 2 (Universal Intelligence Record)
         # We auto-escalate priority if an emergency squawk is detected
         priority = 'NORMAL'
-        headline = f"AIRCRAFT HIT: {flight['callsign']} ({flight['reg']}) detected"
-        
+        headline = f"[SIM] AIRCRAFT HIT: {flight['callsign']} ({flight['reg']}) detected"
+
         if flight['squawk'] == '7700':
             priority = 'CRITICAL'
-            headline = f"⚠️ EMERGENCY: Flight {flight['callsign']} squawking 7700"
+            headline = f"[SIM] ⚠️ EMERGENCY: Flight {flight['callsign']} squawking 7700"
         elif flight['callsign'] == 'AF1':
             priority = 'HIGH'
-            headline = f"🎯 TARGET DETECTED: Air Force One ({flight['callsign']}) active"
+            headline = f"[SIM] 🎯 TARGET DETECTED: Air Force One ({flight['callsign']}) active"
 
-        summary = f"Aircraft {flight['reg']} detected at {flight['alt']}ft. Position: {flight['lat']}, {flight['lon']}. Squawk: {flight['squawk']}"
+        summary = f"SIMULATED demo data. Aircraft {flight['reg']} at {flight['alt']}ft. Position: {flight['lat']}, {flight['lon']}. Squawk: {flight['squawk']}"
         
         content_hash = hashlib.sha256(f"{flight['icao24']}_{now.strftime('%Y%m%d%H')}".encode()).hexdigest()
 
@@ -64,12 +73,12 @@ class AviationAgent(BaseAgent):
             """
             INSERT INTO intelligence_records (
                 source_type, source_agent, source_name, content_hash,
-                content_headline, content_summary, domain, priority, geo
+                content_headline, content_summary, domain, priority, geo, confidence
             ) VALUES (
-                'SIGINT', %s, 'ADS-B Aviation Feed', %s,
-                %s, %s, 'MILITARY', %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                'SIGINT', %s, %s, %s,
+                %s, %s, 'AVIATION', %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.1
             ) ON CONFLICT (content_hash) DO NOTHING
-            """, (self.name, content_hash, headline, summary, priority, flight['lon'], flight['lat'])
+            """, (self.name, self.SOURCE_NAME, content_hash, headline, summary, priority, flight['lon'], flight['lat'])
         )
         
         logger.info(f"Aviation Hit Processed: {flight['callsign']} ({priority})")

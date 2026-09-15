@@ -1,4 +1,4 @@
-.PHONY: up down build test lint seed clean
+.PHONY: up down build test unit-test lint seed clean
 
 up:
 	docker compose up -d
@@ -12,12 +12,14 @@ build:
 test:
 	docker exec seismic_agent python scripts/validate_system.py
 
+unit-test:
+	pytest tests/unit -q
+
 validate:
-	docker exec seismic_agent pytest tests/integration/test_signal_path.py -v -s
+	docker exec seismic_agent pytest -m integration tests/integration/test_signal_path.py -v -s
 
 lint:
-	ruff check .
-	black --check .
+	ruff check src tests
 
 seed-geo:
 	powershell.exe -ExecutionPolicy Bypass -File scripts/seed_geo.ps1

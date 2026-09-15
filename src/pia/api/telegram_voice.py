@@ -1,5 +1,4 @@
 import os
-import asyncio
 from loguru import logger
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
@@ -7,7 +6,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import json
 
-from pia.api.mcp_server import mcp  # We can import the tools directly if in the same repo
+from pia.api.mcp_server import call_tool, db
 
 load_dotenv()
 
@@ -19,9 +18,9 @@ MODEL = os.getenv("LLM_MODEL", "z-ai/glm-4.5-air:free")
 # LLM Client for reasoning
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key=os.getenv("OPENROUTER_API_KEY"),
+    api_key=os.getenv("OPENROUTER_API_KEY") or "missing-openrouter-key",
     default_headers={
-        "HTTP-Referer": "https://github.com/google/gemini-cli",
+        "HTTP-Referer": "https://github.com/sebastian420-hub/pia",
         "X-Title": "PIA-Telegram-Voice"
     }
 )
@@ -92,20 +91,18 @@ class TelegramVoice:
                     
                     await update.message.reply_text(f"📡 Executing: {tool_name}...")
                     
-                    # Execute tool directly using the imported mcp instance
-                    from pia.api import mcp_server
-                    tool_func = getattr(mcp_server, tool_name, None)
-                    
-                    if tool_func:
-                        result = tool_func(**args)
-                        # 3. Feed results back to LLM for tactical summary
-                        # Use the TacticalEncoder to safely stringify datetimes and objects
-                        serialized_result = json.dumps(result, cls=TacticalEncoder)
-                        summary_prompt = f"Here are the raw results from {tool_name}: {serialized_result}. Provide a concise tactical summary for the Director."
-                        final_response = await self.get_reasoning(summary_prompt, context_history=[{"role": "user", "content": user_text}, {"role": "assistant", "content": reasoning}])
-                        await update.message.reply_text(final_response, parse_mode="Markdown")
-                    else:
-                        await update.message.reply_text(f"Error: Tool {tool_name} not found.")
+                    # Only registered tools, only their declared arguments.
+                    try:
+                        result = call_tool(tool_name, args if isinstance(args, dict) else {})
+                    except (KeyError, TypeError) as bad_call:
+                        await update.message.reply_text(f"Error: {bad_call}")
+                        return
+
+                    # 3. Feed results back to LLM for tactical summary
+                    serialized_result = json.dumps(result, cls=TacticalEncoder)
+                    summary_prompt = f"Here are the raw results from {tool_name}: {serialized_result}. Provide a concise tactical summary for the Director."
+                    final_response = await self.get_reasoning(summary_prompt, context_history=[{"role": "user", "content": user_text}, {"role": "assistant", "content": reasoning}])
+                    await update.message.reply_text(final_response)
                 else:
                     await update.message.reply_text(reasoning)
             except json.JSONDecodeError:
@@ -132,7 +129,6 @@ async def set_mission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     category = context.args[0].upper()
     keywords = context.args[1].split(",")
     
-    from pia.api.mcp_server import db
     db.execute_query(
         "INSERT INTO mission_focus (category, keywords, is_active) VALUES (%s, %s, TRUE)",
         (category, keywords)
@@ -144,7 +140,6 @@ async def list_missions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ALLOWED_IDS: return
     
-    from pia.api.mcp_server import db
     active = db.execute_query("SELECT category, keywords FROM mission_focus WHERE is_active = TRUE", fetch=True)
     
     if not active:
@@ -159,6 +154,9 @@ async def list_missions(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     if not TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN not found in environment.")
+        exit(1)
+    if not ALLOWED_IDS:
+        logger.error("ALLOWED_TELEGRAM_USER_IDS is empty; refusing to start a bot nobody may use.")
         exit(1)
         
     voice = TelegramVoice()

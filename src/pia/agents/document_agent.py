@@ -1,12 +1,11 @@
 import os
-import time
 import hashlib
 import fitz  # PyMuPDF
 from loguru import logger
-from datetime import datetime
 
 from pia.core.base_agent import BaseAgent
 from pia.core.database import DatabaseManager
+from pia.core.text import chunk_text
 
 class DocumentAgent(BaseAgent):
     """
@@ -37,20 +36,6 @@ class DocumentAgent(BaseAgent):
             elif filename.lower().endswith('.txt'):
                 self.process_txt(filepath, filename)
 
-    def _chunk_text(self, text: str, chunk_size: int = 1500, overlap: int = 200) -> list:
-        """Splits text into overlapping chunks for context preservation."""
-        chunks = []
-        start = 0
-        text_length = len(text)
-        
-        while start < text_length:
-            end = start + chunk_size
-            chunk = text[start:end]
-            chunks.append(chunk)
-            start += chunk_size - overlap
-            
-        return chunks
-
     def process_pdf(self, filepath: str, filename: str):
         """Extracts text from a PDF and injects chunks into the database."""
         try:
@@ -60,13 +45,12 @@ class DocumentAgent(BaseAgent):
                 full_text += page.get_text("text") + "\n"
             doc.close()
 
-            self._inject_chunks(full_text, filename)
-            
-            # Move to processed folder to prevent infinite looping
-            self._mark_processed(filepath, filename)
-            
+            outcome = self._inject_chunks(full_text, filename)
+            self._mark_processed(filepath, filename, outcome)
+
         except Exception as e:
             logger.error(f"Failed to process PDF {filename}: {e}")
+            self._mark_processed(filepath, filename, "failed")
 
     def process_txt(self, filepath: str, filename: str):
         """Reads text from a TXT file and injects chunks into the database."""
@@ -74,24 +58,31 @@ class DocumentAgent(BaseAgent):
             with open(filepath, 'r', encoding='utf-8') as f:
                 full_text = f.read()
             
-            self._inject_chunks(full_text, filename)
-            self._mark_processed(filepath, filename)
-            
+            outcome = self._inject_chunks(full_text, filename)
+            self._mark_processed(filepath, filename, outcome)
+
         except Exception as e:
             logger.error(f"Failed to process TXT {filename}: {e}")
+            self._mark_processed(filepath, filename, "failed")
 
-    def _inject_chunks(self, full_text: str, filename: str):
-        """Chunks the text and injects each chunk as a unique HUMINT record."""
+    def _inject_chunks(self, full_text: str, filename: str) -> str:
+        """
+        Chunks the text and injects each chunk as a unique HUMINT record.
+        Returns 'processed' (something was stored or already existed) or 'failed'
+        (nothing could be stored) so the caller does not silently discard the file.
+        """
         # Clean text
         clean_text = " ".join(full_text.split())
         if not clean_text:
             logger.warning(f"No text extracted from {filename}")
-            return
+            return "failed"
 
-        chunks = self._chunk_text(clean_text)
+        chunks = chunk_text(clean_text)
         logger.info(f"Extracted {len(chunks)} chunks from {filename}")
 
         inserted_count = 0
+        existing_count = 0
+        failed_count = 0
         for i, chunk in enumerate(chunks):
             # Create a unique hash for this specific chunk
             chunk_hash = hashlib.sha256(chunk.encode('utf-8')).hexdigest()
@@ -103,6 +94,7 @@ class DocumentAgent(BaseAgent):
                 fetch=True
             )
             if exists:
+                existing_count += 1
                 continue
 
             headline = f"Document Extract: {filename} (Part {i+1}/{len(chunks)})"
@@ -129,18 +121,26 @@ class DocumentAgent(BaseAgent):
                 )
                 inserted_count += 1
             except Exception as e:
+                failed_count += 1
                 logger.error(f"Failed to insert chunk {i} from {filename}: {e}")
 
         if inserted_count > 0:
             logger.success(f"Injected {inserted_count} new UIRs from {filename} into the pipeline.")
+        if failed_count and not inserted_count and not existing_count:
+            logger.error(f"Every chunk of {filename} failed to insert ({failed_count}); moving it to failed/")
+            return "failed"
+        return "processed"
 
-    def _mark_processed(self, filepath: str, filename: str):
-        """Moves the file to a 'processed' directory."""
-        processed_dir = os.path.join(self.doc_dir, "processed")
-        os.makedirs(processed_dir, exist_ok=True)
-        new_path = os.path.join(processed_dir, filename)
+    def _mark_processed(self, filepath: str, filename: str, outcome: str = "processed"):
+        """Moves the file to 'processed/' or 'failed/' so it is neither re-read nor lost."""
+        target_dir = os.path.join(self.doc_dir, "failed" if outcome == "failed" else "processed")
+        os.makedirs(target_dir, exist_ok=True)
+        new_path = os.path.join(target_dir, filename)
+        if os.path.exists(new_path):
+            base, ext = os.path.splitext(filename)
+            new_path = os.path.join(target_dir, f"{base}_{hashlib.sha1(filepath.encode()).hexdigest()[:8]}{ext}")
         os.rename(filepath, new_path)
-        logger.info(f"Archived {filename} to processed directory.")
+        logger.info(f"Archived {filename} to {os.path.basename(target_dir)}/")
 
     def stop(self):
         self.db.close()

@@ -1,6 +1,8 @@
-import time, uuid, json, random
+import hashlib
+import os
+import sys
 from loguru import logger
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pia.core.base_agent import BaseAgent
 from pia.core.database import DatabaseManager
@@ -8,22 +10,27 @@ from pia.core.database import DatabaseManager
 class MaritimeAgent(BaseAgent):
     """
     The Maritime Sentinel.
-    Polls AIS data and ingests vessel movements into the Agency's spine.
+
+    There is no real AIS integration yet. This agent emits a fixed list of
+    SIMULATED vessel hits and only runs when SIMULATED_SENSORS=true.
+    Simulated records are labelled 'SIMULATED AIS Feed' with confidence 0.1.
     """
 
+    SOURCE_NAME = "SIMULATED AIS Feed"
+
     def setup(self):
+        if os.getenv("SIMULATED_SENSORS", "false").lower() not in ("1", "true", "yes"):
+            logger.warning(f"{self.name}: no real AIS feed is implemented; set SIMULATED_SENSORS=true to emit demo data. Exiting.")
+            sys.exit(0)
         self.db = DatabaseManager()
-        # Ensure source authority exists
         self.db.execute_query(
-            "INSERT INTO source_authority (source_name, source_type, trust_score, notes) VALUES ('AIS Maritime Feed', 'SIGINT', 0.90, 'Real-time vessel tracking') ON CONFLICT DO NOTHING"
+            "INSERT INTO source_authority (source_name, source_type, trust_score, notes) VALUES (%s, 'SIGINT', 0.1, 'Hardcoded demo vessels; not real telemetry') ON CONFLICT DO NOTHING",
+            (self.SOURCE_NAME,)
         )
-        logger.info(f"{self.name} initialized for global maritime surveillance.")
+        logger.info(f"{self.name} initialized (SIMULATED maritime data).")
 
     def poll(self):
-        """Simulates/Polls real-time AIS vessel hits."""
-        # In a production environment, we would call an API like Spire, Marinetraffic, or an AISHub feed.
-        # For the prototype, we simulate hits in high-priority zones (e.g. Strait of Hormuz, Suez, etc.)
-        
+        """Emits the fixed simulated vessel hits."""
         vessels = [
             {"name": "EVER GIVEN", "mmsi": "353136000", "type": "CARGO", "flag": "Panama", "lat": 29.9, "lon": 32.5},
             {"name": "COSCO SHIPPING", "mmsi": "477353100", "type": "CARGO", "flag": "Hong Kong", "lat": 1.2, "lon": 103.8},
@@ -35,7 +42,7 @@ class MaritimeAgent(BaseAgent):
 
     def ingest_vessel_hit(self, ship):
         """Converts a vessel hit into a telemetry record and a UIR for the Brain."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         
         # 1. Store in Layer 1 (Telemetry)
         self.db.execute_query(
@@ -48,22 +55,21 @@ class MaritimeAgent(BaseAgent):
 
         # 2. Convert to Layer 2 (Universal Intelligence Record)
         # This triggers the Analyst Swarm to look for anomalies or links
-        headline = f"VESSEL HIT: {ship['name']} ({ship['type']}) detected"
-        summary = f"Vessel flying {ship['flag']} flag detected at lat {ship['lat']}, lon {ship['lon']}. MMSI: {ship['mmsi']}"
-        
-        import hashlib
+        headline = f"[SIM] VESSEL HIT: {ship['name']} ({ship['type']}) detected"
+        summary = f"SIMULATED demo data. Vessel flying {ship['flag']} flag at lat {ship['lat']}, lon {ship['lon']}. MMSI: {ship['mmsi']}"
+
         content_hash = hashlib.sha256(f"{ship['mmsi']}_{now.strftime('%Y%m%d%H')}".encode()).hexdigest()
 
         self.db.execute_query(
             """
             INSERT INTO intelligence_records (
                 source_type, source_agent, source_name, content_hash,
-                content_headline, content_summary, domain, priority, geo
+                content_headline, content_summary, domain, priority, geo, confidence
             ) VALUES (
-                'SIGINT', %s, 'AIS Maritime Feed', %s,
-                %s, %s, 'MILITARY', 'NORMAL', ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                'SIGINT', %s, %s, %s,
+                %s, %s, 'MARITIME', 'NORMAL', ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.1
             ) ON CONFLICT (content_hash) DO NOTHING
-            """, (self.name, content_hash, headline, summary, ship['lon'], ship['lat'])
+            """, (self.name, self.SOURCE_NAME, content_hash, headline, summary, ship['lon'], ship['lat'])
         )
         
         logger.info(f"Maritime Hit Processed: {ship['name']}")

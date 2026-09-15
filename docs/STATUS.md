@@ -1,27 +1,62 @@
 # PIA Project Status
 
-## Current Phase: Phase 8 (Visualization & User Experience)
-**Classification:** Tier-1 Operational
+**Updated:** 2026-09-14 (after the fix plan in `docs/fix_implementation_plan.md`)
+**Classification:** Prototype. Single-tenant. Not production.
 
-### System Readiness
-The system is currently functioning end-to-end and is ready for **Tactical Demonstration**.
+This file describes what the code does today. Marketing language from earlier
+versions ("Tier-1 Operational", "100% stable") has been removed because it did
+not match the code.
 
-1.  **The Brain (`pia-core`):** Fully operational.
-    *   Sensor Agents (Seismic, Maritime, Aviation, News) are actively writing to the Universal Intelligence Record (Layer 2).
-    *   Analyst Agents (Kimi K2.5) are successfully picking up records, extracting entities via NLP, and grounding them into the Layer 5 Knowledge Graph.
-    *   The `pgvectorscale` vector database is active, and entities are successfully being embedded with OpenAI `text-embedding-3-small`.
+## What works
 
-2.  **The Bridge (`pia-api`):** Fully operational.
-    *   FastAPI backend is actively listening to PostgreSQL `pg_notify` channels.
-    *   WebSockets are successfully pushing real-time intelligence to the UI with sub-500ms latency.
-    *   REST endpoints for Bounding Box (Viewport culling), Semantic Vector Search, and Entity/Relational lookups are implemented.
+| Area | State | Notes |
+|------|-------|-------|
+| News ingestion (RSS) | Working | BBC, Al Jazeera, NYT, The Verge. Dedup by URL + content hash. |
+| Seismic ingestion (USGS) | Working | Real feed, polled every 60 s, UTC timestamps. |
+| Document ingestion (PDF/TXT) | Working (after migration 001) | Upload via API → shared folder → `document_agent` chunks → HUMINT records. Failed files go to `failed/`, not lost. |
+| Heartbeat trigger → analysis queue | Working | Every new record queues one analyst job and emits `pg_notify`. |
+| Analyst swarm | Working | Drains the queue, retries failed jobs 3×, re-claims stale jobs after 10 min, writes embedding + summary back to the record. Needs `OPENROUTER_API_KEY`. |
+| Entity resolution + relationships | Working | Lexical + semantic match, verb allowlist, non-LOCATION names unique per type. |
+| Apache AGE graph mirror | Working, parameterised | Names travel as Cypher parameters; labels are validated. |
+| API bridge | Working | Bearer token required. Connection pool. Real HTTP status codes. |
+| Live WebSocket | Working | `ws://host/ws/live?token=…` |
+| 3D globe / ticker / archive / graph viewer | Working | Loads last 100 records on start. Token-free OSM imagery unless `VITE_CESIUM_ION_TOKEN` is set. |
+| Semantic search (records + entities) | Working once records have embeddings | Records ingested before this fix have no embedding; run `scripts/backfill_record_embeddings.py` or let new records accrue. |
+| Human feedback on relationships | Working | `POST /api/v1/feedback`; 👍/👎 in the graph viewer. Rejections feed the analyst's negative examples. |
+| MCP server | Working | Bound to `127.0.0.1:8000` on the host. No auth — do not expose. |
+| Telegram bot | Working, untested end-to-end in this pass | Only registered tools with declared arguments can be called. |
 
-3.  **The Face (`pia-ui`):** Fully operational.
-    *   **Dashboard:** Cesium 3D Globe renders high-performance Point Primitives for the Knowledge Underlay (seeded Wikidata/GeoNames) and Live Intelligence overlay.
-    *   **HUD:** The Omnichannel Live Ticker successfully filters and routes camera movements to active events.
-    *   **Archive:** The Omniscient Archive successfully searches across both raw UIRs and the structured Entity Directory using Semantic Vector matching. 3D Relational Webs are tightly integrated.
+## What is simulated
 
-### Next Immediate Priorities (Phase 9 & 10)
-*   **Data Density (The Heavy Seed):** Transition from the 16 "demo" Wikidata entities to the full 5 Million node Wikidata5m dataset and 11 Million GeoNames dataset via batch Python ingestion scripts.
-*   **Graph Depth Expansion:** Upgrade the `GET /api/v1/graph/network/{entity}` endpoint to support 2-hop and 3-hop relationship traversals (currently limited to 1-hop for performance).
-*   **Cluster Visualization:** While the agents are clustering intelligence, the UI needs a dedicated visualizer for "Hot Zones" (e.g., Heatmaps) to represent `intelligence_clusters` on the globe.
+- **Aviation (ADS-B) and Maritime (AIS) agents emit hardcoded demo data.** There is no real feed.
+  They only run when `SIMULATED_SENSORS=true`; their records are labelled `[SIM]`, source
+  `SIMULATED … Feed`, confidence 0.1, and the UI shows a `SIM` badge.
+
+## What is not built
+
+- **Layer 4 – Strategic Digests** (`intelligence_digests`): table exists, nothing writes it.
+- **Layer 6 – Continuous aggregates**: one Timescale aggregate on `flight_tracks` exists; nothing reads it.
+- `agent_tasks`, `entity_profile_history`, `cluster_revisions`, `satellite_positions`: reserved tables, no writer.
+- **Multi-tenancy**: row-level security policies exist in the schema, but the API connects as the
+  table owner and does not set a client id. The system is single-tenant. See plan item 1.6.
+- **Wikidata5M bulk seed**: ingestor is fixed (commits, parameterised inserts, `UNKNOWN` type) but
+  has not been run at scale; embedding millions of entities has no cost plan.
+- Real ADS-B / AIS feeds.
+
+## Known limits
+
+- Extraction quality depends on the free-tier OpenRouter models in `LLM_MODEL_POOL`; expect rate
+  limits (jobs go to `FAILED` and are retried, not silently marked `DONE`).
+- One embedding call per extracted entity name per record; cost scales with entity count.
+- The graph network endpoint caps at 3 hops and 500 edges.
+
+## Verification status of the fix pass
+
+- Without a database: 35 core unit tests + 12 API unit tests pass, `ruff` clean, UI `tsc` / `eslint` /
+  `vite build` clean, `docker compose config` valid.
+- On a real PostgreSQL + AGE database (throwaway container): schema + migrations apply; injection
+  attempts are stored as literal names; bbox, claim/retry, embedding write-back, entity upsert,
+  feedback and orphan cleanup all behave. Details in `docs/fix_implementation_plan.md` →
+  "Implementation log".
+- Not exercised end-to-end: the full agent swarm with a live LLM key, the Telegram bot, MCP over SSE.
+  Run `make up && make test` then `pytest -m integration tests/integration`.

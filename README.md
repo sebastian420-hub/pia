@@ -45,27 +45,36 @@ The intelligence flows upward through seven layers within a custom **PostgreSQL 
 | **Layer 1** | Raw Telemetry | TimescaleDB | High-velocity time-series data (Flights, Seismic). |
 | **Layer 2** | Intelligence Records (UIR) | pgvector / PostGIS | The core spine. Indexed by Time, Space, and Meaning. |
 | **Layer 3** | Intelligence Clusters | DiskANN | Groupings of UIRs representing evolving patterns. |
-| **Layer 4** | Strategic Digests | OpenRouter LLM | Finished, readable intelligence SITREPs. |
+| **Layer 4** | Strategic Digests | — | *Planned.* Table exists; no writer yet. |
 | **Layer 5** | Knowledge Graph | Apache AGE | Cypher-queryable graph of Entities and Relationships. |
-| **Layer 6** | Continuous Aggregates | pg_cron | Auto-refreshing materialized views for dashboards. |
+| **Layer 6** | Continuous Aggregates | TimescaleDB | *Partial.* One aggregate on flight tracks; nothing reads it. |
 
 ### Repository Structure
 
+The three repositories must be cloned side by side with exactly these folder names
+(`docker-compose.yml` builds the API from `../pia-api`):
+
 ```text
-PIA_OIA/
-├── pia-core/                    # The Brain: Data Swarm & Knowledge Graph
+<workspace>/
+├── pia/                         # The Brain: Data Swarm & Knowledge Graph (this repo)
 │   ├── src/pia/                 # Python App (Agents, Models, Core)
-│   └── database/                # The Memory: SQL Artifacts (Schema, Seeds)
-├── pia-api/                     # The Bridge: FastAPI Real-Time WebSocket Server
-└── pia-ui/                      # The Face: React/Cesium 3D Digital Twin
+│   ├── database/schema/         # Base schema (fresh databases)
+│   └── database/migrations/     # Incremental changes (applied on every start)
+├── pia-api/                     # The Bridge: FastAPI REST + WebSocket server
+└── pia-ui/                      # The Face: React/Cesium 3D dashboard
 ```
 
 ---
 
 ## [OPERATIONS] Core Features
 
+### Sensors
+* **Real:** News (RSS) and Seismic (USGS). Documents (PDF/TXT) via upload.
+* **Simulated:** Aviation (ADS-B) and Maritime (AIS) have no real feed. They emit fixed demo
+  rows only when `SIMULATED_SENSORS=true`, clearly labelled `[SIM]`.
+
 ### Parallel Analyst Swarm
-Distributed cluster of Analyst Agents using `FOR UPDATE SKIP LOCKED` to process the analysis queue concurrently. Ensures real-time fusion of high-volume intelligence.
+Distributed cluster of Analyst Agents using `FOR UPDATE SKIP LOCKED` to drain the analysis queue concurrently. Failed jobs are retried; jobs abandoned by a dead worker are re-claimed.
 
 ### Semantic Vector Resolution
 Uses **pgvector** and **OpenRouter LLMs** for conceptual entity resolution. Links descriptions like *"The Hawthorne-based rocket manufacturer"* to the entity *"SpaceX"* via 1536-dimensional similarity.
@@ -85,7 +94,15 @@ Built-in Telegram bot acting as an **OpenClaw Reasoning Agent**. Perform spatial
 * Make (Optional)
 * PowerShell (For Windows utility scripts)
 
-### 1. Build and Run
+### 1. Configure
+```bash
+cp .env.example .env
+# set OPENROUTER_API_KEY, DB_PASSWORD, and PIA_API_TOKEN
+#   python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+The same `PIA_API_TOKEN` goes into `pia-ui/.env.local` as `VITE_API_TOKEN`.
+
+### 2. Build and Run
 ```bash
 # Linux/macOS
 make build && make up
@@ -93,12 +110,18 @@ make build && make up
 # Windows
 ./ps.ps1 build && ./ps.ps1 up
 ```
+`pia_init` creates the schema on a fresh database and applies `database/migrations/` on every start.
 
-### 2. Validation
+### 3. Validation
 ```bash
-# Full stack check
-make test # or ./ps.ps1 test
+make unit-test   # no database needed
+make test        # full stack check inside the container
 ```
+
+### Security notes
+* Every API call needs `Authorization: Bearer <PIA_API_TOKEN>`; the WebSocket takes `?token=`.
+* Postgres and the MCP server are published on `127.0.0.1` only. The MCP server has no auth.
+* The system is single-tenant. RLS policies exist in the schema but are not enforced by the API.
 
 ---
 
@@ -109,4 +132,4 @@ make test # or ./ps.ps1 test
 
 ---
 **Classification:** Open Source Vision Prototype  
-**Version:** 0.8.0 (Visualization & User Experience)
+**Version:** 0.8.1 (Hardening) — see `docs/STATUS.md` for what works, what is simulated, and what is not built.
