@@ -127,7 +127,7 @@ services:
       context: .
       dockerfile: ./infra/agents/Dockerfile
     container_name: maritime_agent
-    restart: on-failure
+    restart: always
     volumes:
       - .:/app
     command: ["python", "src/pia/agents/maritime_agent.py"]
@@ -136,18 +136,20 @@ services:
       - DB_USER=pia
       - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
-      # No real feed exists yet; the agent exits unless this is true.
-      - SIMULATED_SENSORS=${SIMULATED_SENSORS:-false}
+      # Register free at https://www.aishub.net/join — no credit card required.
+      # Leave empty to have the agent skip polls gracefully.
+      - AISHUB_USERNAME=${AISHUB_USERNAME:-}
     depends_on:
       pia_init:
         condition: service_completed_successfully
+
 
   aviation_agent:
     build:
       context: .
       dockerfile: ./infra/agents/Dockerfile
     container_name: aviation_agent
-    restart: on-failure
+    restart: always
     volumes:
       - .:/app
     command: ["python", "src/pia/agents/aviation_agent.py"]
@@ -156,11 +158,14 @@ services:
       - DB_USER=pia
       - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=pia
-      # No real feed exists yet; the agent exits unless this is true.
-      - SIMULATED_SENSORS=${SIMULATED_SENSORS:-false}
+      # OpenSky Network — anonymous access works with no credentials.
+      # Add an account for a higher rate limit: https://opensky-network.org/index.php?option=com_users&view=registration
+      - OPENSKY_USERNAME=${OPENSKY_USERNAME:-}
+      - OPENSKY_PASSWORD=${OPENSKY_PASSWORD:-}
     depends_on:
       pia_init:
         condition: service_completed_successfully
+
 
   document_agent:
     build:

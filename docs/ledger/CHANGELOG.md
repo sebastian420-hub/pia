@@ -1,6 +1,44 @@
 # Changelog
 
+## [0.8.2] - 2026-09-18
+
+### Added
+- **Real ADS-B Aviation Feed:** Rewrote `aviation_agent.py` to poll the
+  [OpenSky Network](https://opensky-network.org) REST API (free, no API key
+  required for anonymous access). Pulls 6,000–15,000 live aircraft per poll.
+  Only aircraft squawking 7700/7600/7500 (emergency/comms-loss/hijack) or
+  matching US military ICAO24 prefixes (`ae`, `af`) create UIRs — all other
+  traffic goes to Layer 1 telemetry only to avoid flooding the analyst queue.
+  Anonymous mode backs off to a 5-minute poll interval to stay within OpenSky
+  rate limits; add `OPENSKY_USERNAME` + `OPENSKY_PASSWORD` to `.env` to unlock
+  60-second polling.
+- **Real AIS Maritime Feed:** Rewrote `maritime_agent.py` to use the
+  [AISHub](https://www.aishub.net) free API. Filters to military vessels
+  (AIS type 35) and tankers (types 80–89) for UIR creation; all others are
+  telemetry only. Degrades gracefully with a clear warning when
+  `AISHUB_USERNAME` is not set — no simulated data, no noise.
+- **Migration 003:** `database/migrations/003_real_feed_sources.sql` — registers
+  `opensky` and `aishub` as trusted `SENSOR` sources in the `sources` table so
+  the foreign key constraint on `intelligence_records.source_id` is satisfied.
+  Applied idempotently on every stack start.
+
+### Changed
+- **`docker-compose.yml`:** Both `aviation_agent` and `maritime_agent` now use
+  `restart: always` (previously `on-failure`). Removed `SIMULATED_SENSORS`
+  environment variable from both services. Added `OPENSKY_USERNAME`,
+  `OPENSKY_PASSWORD`, and `AISHUB_USERNAME` pass-through env vars.
+- **`pia/.env`:** Added `OPENSKY_USERNAME`, `OPENSKY_PASSWORD`, and
+  `AISHUB_USERNAME` keys (all empty by default) with inline registration links.
+
+### Fixed
+- **Removed simulated sensor gate:** Aviation and maritime agents no longer
+  `sys.exit(0)` when `SIMULATED_SENSORS` is false. They now run permanently
+  and connect to real feeds.
+
+---
+
 ## [0.7.0] - 2026-03-01
+
 ### Added
 - **Global SIGINT:** Integrated Aviation (ADS-B) and Maritime (AIS) sentinel agents for real-time asset tracking.
 - **Grounding Engine:** Implemented "Geospatial Veto" logic to prevent semantic collisions between distant entities.
