@@ -202,6 +202,20 @@ def cameo_action(code: str):
     return action, CAMEO_ROOT_TOPIC.get(root, "other"), CAMEO_ROOT_LABELS.get(root, "event")
 
 
+# CAMEO roots that are words, not deeds: statements, appeals, intents, consultations, praise,
+# disapproval, rejection, threats. Kept as events (they carry topic and tone) but a wire event of
+# this class never draws a line on its own — only article-read events and material deeds do.
+VERBAL_ROOTS = {"01", "02", "03", "04", "05", "11", "12", "13"}
+MATERIAL_VERBAL_EXCEPTIONS = {"057", "054", "042", "043"}   # signed agreement, recognition, visit, host: deeds
+
+
+def weight_class(code: str) -> str:
+    code = (code or "").strip()
+    if any(code.startswith(x) for x in MATERIAL_VERBAL_EXCEPTIONS):
+        return "material"
+    return "verbal" if code[:2].zfill(2) in VERBAL_ROOTS else "material"
+
+
 # Actions where a->b and b->a are the same event (dedup on the unordered pair)
 SYMMETRIC_ACTIONS = {"MEET", "CALL", "NEGOTIATE", "SIGN_AGREEMENT", "COOPERATE", "AGREE", "TRUCE",
                      "TRADE_COOPERATE", "MILITARY_COOPERATE"}

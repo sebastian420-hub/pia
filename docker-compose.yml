@@ -190,6 +190,25 @@ services:
       pia_init:
         condition: service_completed_successfully
 
+  reader_agent:
+    build:
+      context: .
+      dockerfile: ./infra/agents/Dockerfile
+    container_name: reader_agent
+    restart: always
+    volumes:
+      - .:/app
+    command: ["python", "src/pia/agents/reader_agent.py"]
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=pia
+      - DB_PASSWORD=${DB_PASSWORD:-password}
+      - DB_NAME=pia
+      - READER_DAILY_BUDGET=${READER_DAILY_BUDGET:-400}
+    depends_on:
+      pia_init:
+        condition: service_completed_successfully
+
   gdelt_agent:
     build:
       context: .

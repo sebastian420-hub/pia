@@ -93,6 +93,9 @@ CREATE TABLE events (
     tone           FLOAT,                                  -- -10 (hostile) .. +10 (cooperative)
     external_id    TEXT,                                   -- GDELT GlobalEventID etc.
     kind           TEXT,                                   -- relation kind it feeds: HOSTILE | COOPERATIVE | ROLE | OWNERSHIP | NULL
+    is_root        BOOLEAN,                                -- GDELT IsRootEvent (the article's main event)
+    outlets        JSONB NOT NULL DEFAULT '[]'::jsonb,     -- every outlet that carried the same wire event
+    weight_class   TEXT,                                   -- 'material' | 'verbal' (verbal wire rows never draw a line alone)
     topic          TEXT,                                   -- kg.ontology.TOPICS: what the event is about
     code           TEXT,                                   -- raw CAMEO code for GDELT events ("051")
     dedup_key      TEXT NOT NULL,
@@ -122,6 +125,9 @@ CREATE TABLE relations (
     event_count  INTEGER NOT NULL DEFAULT 0,
     weight       FLOAT NOT NULL DEFAULT 0,                 -- events: Σ confidence·exp(-age/90d); wikidata: 1
     topics       JSONB NOT NULL DEFAULT '{}'::jsonb,        -- {"diplomacy": 26, "military": 19} (events only)
+    verified_count  INTEGER NOT NULL DEFAULT 0,             -- events read from the article (origin llm, with quotes)
+    wire_count      INTEGER NOT NULL DEFAULT 0,             -- GDELT story-days behind the pair
+    verified_topics JSONB NOT NULL DEFAULT '{}'::jsonb,
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (a_id, b_id, kind, source)
 );

@@ -11,10 +11,14 @@ Precision rules (see docs/design/graph_accuracy_implementation_plan.md, part A):
   - the event carries no quote: the evidence is the source page's title, outlet and URL, plus the
     CAMEO code; the event location is kept only when it lies in one of the two actors' countries
   - symmetric actions (MEET, AGREE …) dedup on the unordered pair
+  - a story is counted once: the same (pair, action, day) from thirty outlets is one event whose
+    `outlets` list grows; `is_root` and `weight_class` (verbal / material) are kept so the
+    relations job can refuse to draw a line from "somebody said something"
 """
 import csv
 import hashlib
 import io
+import json
 import os
 import re
 import time
@@ -32,12 +36,12 @@ from pia.kg.geo_codes import fips_to_iso2
 from pia.kg.normalize import normalize
 from pia.kg.ontology import (ACTIONS, CONTINENT_QIDS, GDELT_GENERIC_ACTORS, GDELT_KNOWN_GROUPS,
                              GDELT_REGION_CODES, GOVERNMENT_SEATS, STATE_ACTOR_TYPES, SYMMETRIC_ACTIONS,
-                             cameo_action)
+                             cameo_action, weight_class)
 from pia.kg.resolver import Resolver
 
 LASTUPDATE = "http://data.gdeltproject.org/gdeltv2/lastupdate.txt"
 COL = dict(id=0, day=1, a1name=6, a1cc=7, a1kg=8, a1type=12, a2name=16, a2cc=17, a2kg=18, a2type=22,
-           code=26, root=28, quad=29, goldstein=30, mentions=31, sources=32, tone=34,
+           isroot=25, code=26, root=28, quad=29, goldstein=30, mentions=31, sources=32, tone=34,
            geo_name=52, geo_cc=53, lat=56, lon=57, added=59, url=60)
 
 DIRECTED_ACTIONS = {"ATTACK", "ACCUSE", "THREATEN", "SANCTION", "COERCE", "ARREST", "AID", "AGREE", "MEET",
@@ -232,7 +236,7 @@ class GdeltAgent(BaseAgent):
             candidates.append(dict(row=row, action=action, topic=topic, code=(row[COL['code']] or row[COL['root']]).strip(),
                                    code_label=code_label, actor=actor, target=target, lat=lat, lon=lon,
                                    event_geo=bool(in_actor_country), url=src_url, when=when,
-                                   goldstein=goldstein, sources=sources))
+                                   goldstein=goldstein, sources=sources, is_root=(row[COL['isroot']].strip() == "1")))
 
         # one lightweight report per source URL; titles fetched in parallel, best effort
         urls = sorted({c['url'] for c in candidates if c['url'].startswith("http")})
@@ -248,17 +252,23 @@ class GdeltAgent(BaseAgent):
             outlet = outlet_from_url(c['url']) if c['url'].startswith("http") else "gdelt"
             a_id, t_id = actor['entity_id'], target['entity_id'] if target else ''
             pair = tuple(sorted((a_id, t_id))) if (target and action in SYMMETRIC_ACTIONS) else (a_id, t_id)
-            dedup = hashlib.sha1(f"gdelt|{pair[0]}|{pair[1]}|{action}|{when.date()}|{outlet}".encode()).hexdigest()
+            # one event per story-day: the outlet is NOT part of the key; copies add to `outlets`
+            dedup = hashlib.sha1(f"gdelt|{pair[0]}|{pair[1]}|{action}|{when.date()}".encode()).hexdigest()
             confidence = round(min(0.9, 0.4 + 0.1 * min(c['sources'], 5)), 2)
             self.db.execute_query("""
                 INSERT INTO events (event_time, time_precision, action, kind, actor_id, target_id, geo, report_uid, source_id,
-                                    origin, quote, confidence, tone, external_id, topic, code, dedup_key)
+                                    origin, quote, confidence, tone, external_id, topic, code, is_root, weight_class, outlets, dedup_key)
                 VALUES (%s, 'day', %s, %s, %s, %s,
                         CASE WHEN %s THEN ST_SetSRID(ST_MakePoint(%s, %s), 4326) END,
-                        %s, 'gdelt', 'gdelt', NULL, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (dedup_key, event_time) DO NOTHING
+                        %s, 'gdelt', 'gdelt', NULL, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                ON CONFLICT (dedup_key, event_time) DO UPDATE SET
+                    outlets = CASE WHEN events.outlets ? %s THEN events.outlets ELSE events.outlets || %s::jsonb END,
+                    confidence = LEAST(0.9, GREATEST(events.confidence, EXCLUDED.confidence) + 0.05),
+                    is_root = events.is_root OR EXCLUDED.is_root
             """, (when, action, ACTIONS[action][1], a_id, t_id or None, c['event_geo'], c['lon'], c['lat'],
-                  report_uids.get(c['url']), confidence, c['goldstein'], c['row'][COL['id']], c['topic'], c['code'], dedup))
+                  report_uids.get(c['url']), confidence, c['goldstein'], c['row'][COL['id']], c['topic'], c['code'],
+                  c['is_root'], weight_class(c['code']), json.dumps([outlet]), dedup,
+                  outlet, json.dumps([outlet])))
             for ent in (actor, target):
                 if ent:
                     self.db.execute_query("UPDATE entities SET mention_count = mention_count + 1, last_seen = NOW() WHERE entity_id = %s", (ent['entity_id'],))

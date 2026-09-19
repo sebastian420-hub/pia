@@ -118,7 +118,9 @@ def parse_entity(ent: dict) -> dict:
     qid = ent["id"]
     labels = ent.get("labels") or {}
     label = next((labels[lg]["value"] for lg in ("en", "en-gb", "de", "fr", "es", "it", "pt", "nl") if lg in labels and labels[lg].get("value")), None) \
-        or next((v.get("value") for v in labels.values() if v.get("value")), qid)
+        or next((v.get("value") for v in labels.values() if v.get("value")), None) \
+        or ((ent.get("sitelinks") or {}).get("enwiki") or {}).get("title") \
+        or qid   # labels can be empty for a moment (vandalised / being edited): the Wikipedia title still names it
     desc = (ent.get("descriptions") or {}).get("en", {}).get("value")
     aliases = [a["value"] for a in (ent.get("aliases") or {}).get("en", [])]
     p31 = [v["id"] for v, _ in _claim_values(ent, "P31") if isinstance(v, dict) and "id" in v]
