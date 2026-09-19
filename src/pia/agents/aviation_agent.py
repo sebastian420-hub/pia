@@ -145,7 +145,9 @@ class AviationAgent(BaseAgent):
             return False   # telemetry only; don't touch the analyst queue
 
         # ── Layer 2: Universal Intelligence Record ────────────────────────────
-        priority = _SQUAWK_PRIORITY.get(squawk, "HIGH" if is_military else "NORMAL")
+        # A military aircraft in the air is routine: NORMAL, one report per aircraft per day.
+        # Only an emergency squawk raises priority (and may repeat hourly).
+        priority = _SQUAWK_PRIORITY.get(squawk, "NORMAL")
         ident    = callsign or icao24.upper()
 
         if is_special_squawk:
@@ -158,9 +160,10 @@ class AviationAgent(BaseAgent):
             f"at {alt_ft:,} ft, {speed_kts} kts. "
             f"Position: {lat:.4f}°N, {lon:.4f}°E. Squawk: {squawk or 'none'}."
         )
-        # Hash per aircraft per hour — prevents spamming UIRs for the same flight
+        # Emergencies: one report per aircraft per hour; routine military: one per aircraft per day
+        bucket = now.strftime('%Y%m%d%H') if is_special_squawk else now.strftime('%Y%m%d')
         content_hash = hashlib.sha256(
-            f"adsb:{icao24}:{squawk}:{now.strftime('%Y%m%d%H')}".encode()
+            f"adsb:{icao24}:{squawk}:{bucket}".encode()
         ).hexdigest()
 
         self.db.execute_query(

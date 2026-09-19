@@ -92,6 +92,9 @@ CREATE TABLE events (
     confidence     FLOAT NOT NULL CHECK (confidence BETWEEN 0.0 AND 1.0),
     tone           FLOAT,                                  -- -10 (hostile) .. +10 (cooperative)
     external_id    TEXT,                                   -- GDELT GlobalEventID etc.
+    kind           TEXT,                                   -- relation kind it feeds: HOSTILE | COOPERATIVE | ROLE | OWNERSHIP | NULL
+    topic          TEXT,                                   -- kg.ontology.TOPICS: what the event is about
+    code           TEXT,                                   -- raw CAMEO code for GDELT events ("051")
     dedup_key      TEXT NOT NULL,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (event_time, event_id)
@@ -101,6 +104,8 @@ CREATE UNIQUE INDEX events_dedup  ON events(dedup_key, event_time);
 CREATE INDEX idx_events_actor     ON events(actor_id, event_time DESC);
 CREATE INDEX idx_events_target    ON events(target_id, event_time DESC);
 CREATE INDEX idx_events_action    ON events(action, event_time DESC);
+CREATE INDEX idx_events_topic     ON events(topic);
+CREATE INDEX idx_events_kind      ON events(kind);
 CREATE INDEX idx_events_geo       ON events USING GIST(geo) WHERE geo IS NOT NULL;
 CREATE INDEX idx_events_report    ON events(report_uid);
 
@@ -116,6 +121,7 @@ CREATE TABLE relations (
     last_seen    TIMESTAMPTZ,
     event_count  INTEGER NOT NULL DEFAULT 0,
     weight       FLOAT NOT NULL DEFAULT 0,                 -- events: Σ confidence·exp(-age/90d); wikidata: 1
+    topics       JSONB NOT NULL DEFAULT '{}'::jsonb,        -- {"diplomacy": 26, "military": 19} (events only)
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (a_id, b_id, kind, source)
 );

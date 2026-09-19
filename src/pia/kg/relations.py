@@ -19,32 +19,49 @@ ACTION_KIND_SQL = "CASE action " + " ".join(
 def rebuild(db, days: int = 365):
     with db.get_connection() as conn:
         with conn.cursor() as cur:
-            # 1. from events
+            # 1. from events: aggregate per (pair, kind, topic) first, then roll topics into one row per (pair, kind)
             cur.execute(f"""
-                WITH agg AS (
+                WITH per_topic AS (
                     SELECT LEAST(actor_id, target_id) AS a_id, GREATEST(actor_id, target_id) AS b_id,
-                           {ACTION_KIND_SQL} AS kind,
+                           COALESCE(kind, {ACTION_KIND_SQL}) AS kind, COALESCE(topic, 'other') AS topic,
                            MIN(event_time) AS first_seen, MAX(event_time) AS last_seen,
                            COUNT(*) AS event_count,
                            SUM(confidence * exp(-EXTRACT(EPOCH FROM (NOW() - event_time)) / 86400.0 / 90.0)) AS weight,
                            (array_agg(action ORDER BY event_time DESC))[1] AS latest_action,
-                           bool_or(origin <> 'gdelt') AS has_non_gdelt,
-                           COUNT(DISTINCT source_id) AS outlets
+                           bool_or(origin <> 'gdelt') AS has_non_gdelt
+                    FROM events
+                    WHERE actor_id IS NOT NULL AND target_id IS NOT NULL AND actor_id <> target_id
+                      AND event_time > NOW() - make_interval(days => %s)
+                    GROUP BY 1, 2, 3, 4
+                ), per_pair_outlets AS (
+                    SELECT LEAST(actor_id, target_id) AS a_id, GREATEST(actor_id, target_id) AS b_id,
+                           COALESCE(kind, {ACTION_KIND_SQL}) AS kind, COUNT(DISTINCT source_id) AS outlets
                     FROM events
                     WHERE actor_id IS NOT NULL AND target_id IS NOT NULL AND actor_id <> target_id
                       AND event_time > NOW() - make_interval(days => %s)
                     GROUP BY 1, 2, 3
+                ), agg AS (
+                    SELECT a_id, b_id, kind,
+                           MIN(first_seen) AS first_seen, MAX(last_seen) AS last_seen,
+                           SUM(event_count) AS event_count, SUM(weight) AS weight,
+                           (array_agg(latest_action ORDER BY last_seen DESC))[1] AS latest_action,
+                           (array_agg(topic ORDER BY event_count DESC))[1] AS top_topic,
+                           bool_or(has_non_gdelt) AS has_non_gdelt,
+                           MAX(o.outlets) AS outlets,
+                           jsonb_object_agg(topic, event_count) AS topics
+                    FROM per_topic JOIN per_pair_outlets o USING (a_id, b_id, kind)
+                    WHERE kind IS NOT NULL
+                    GROUP BY 1, 2, 3
                 )
-                INSERT INTO relations (a_id, b_id, kind, source, label, directed, first_seen, last_seen, event_count, weight, updated_at)
-                SELECT a_id, b_id, kind, 'events', lower(latest_action), FALSE, first_seen, last_seen, event_count, weight, NOW()
+                INSERT INTO relations (a_id, b_id, kind, source, label, directed, first_seen, last_seen, event_count, weight, topics, updated_at)
+                SELECT a_id, b_id, kind, 'events', top_topic, FALSE, first_seen, last_seen, event_count, weight, topics, NOW()
                 FROM agg
-                WHERE kind IS NOT NULL
                   -- noise bar: a pair seen only through GDELT needs several wire stories from more than one outlet
-                  AND (has_non_gdelt OR event_count >= 3 OR outlets >= 2)
+                WHERE (has_non_gdelt OR event_count >= 3 OR outlets >= 2)
                 ON CONFLICT (a_id, b_id, kind, source) DO UPDATE SET
                     label = EXCLUDED.label, first_seen = EXCLUDED.first_seen, last_seen = EXCLUDED.last_seen,
-                    event_count = EXCLUDED.event_count, weight = EXCLUDED.weight, updated_at = NOW()
-            """, (days,))
+                    event_count = EXCLUDED.event_count, weight = EXCLUDED.weight, topics = EXCLUDED.topics, updated_at = NOW()
+            """, (days, days))
             # 2. co-mentions (only between resolved entities, capped so the web stays readable)
             cur.execute("""
                 WITH pairs AS (

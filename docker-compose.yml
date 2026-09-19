@@ -11,9 +11,12 @@ services:
       # Bound to the host's loopback only; never reachable from the LAN.
       - "127.0.0.1:5432:5432"
     volumes:
-      - pia_pgdata:/var/lib/postgresql/data
+      # timescaledb-ha keeps its cluster under /home/postgres/pgdata/data, NOT the stock
+      # /var/lib/postgresql/data. Mounting the wrong path left every row in the container's
+      # writable layer, and two container recreations (2026-09-18, 2026-09-19) wiped the database.
+      - pia_pgdata:/home/postgres/pgdata/data
     command: >
-      postgres 
+      postgres
       -c shared_preload_libraries='timescaledb'
       -c max_connections=200
       -c shared_buffers=1GB

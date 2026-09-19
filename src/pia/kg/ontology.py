@@ -9,6 +9,8 @@ Relation kinds: what a summary between two entities means.
 KINDS = ("PERSON", "ORG", "COUNTRY", "PLACE", "VESSEL", "AIRCRAFT", "EVENT", "UNKNOWN")
 
 # action -> (CAMEO root codes, relation kind it contributes to, default tone)
+# The first block is what the LLM may emit (LLM_ACTIONS); the second block is finer actions that
+# only GDELT's 3-4 digit codes produce. Both live in ACTIONS so relations/tone work the same way.
 ACTIONS = {
     "STATEMENT":  (("01",), None,          0.0),
     "APPEAL":     (("02",), "COOPERATIVE", 1.0),
@@ -33,16 +35,210 @@ ACTIONS = {
     "DEPLOY":     ((), None,        -2.0),
     "DISASTER":   ((), None,         0.0),
     "OTHER":      ((), None,         0.0),
+    # ── finer actions from full CAMEO codes (GDELT only) ──
+    "PRAISE":              ((), "COOPERATIVE",  1.0),
+    "DEFEND":              ((), "COOPERATIVE",  2.0),
+    "RECOGNIZE":           ((), "COOPERATIVE",  4.0),
+    "SIGN_AGREEMENT":      ((), "COOPERATIVE",  6.0),
+    "NEGOTIATE":           ((), "COOPERATIVE",  3.0),
+    "CALL":                ((), "COOPERATIVE",  1.0),
+    "HOST":                ((), "COOPERATIVE",  2.0),
+    "MEDIATE":             ((), "COOPERATIVE",  3.0),
+    "TRADE_COOPERATE":     ((), "COOPERATIVE",  4.0),
+    "MILITARY_COOPERATE":  ((), "COOPERATIVE",  5.0),
+    "MILITARY_AID":        ((), "COOPERATIVE",  5.0),
+    "ECONOMIC_AID":        ((), "COOPERATIVE",  5.0),
+    "HUMANITARIAN_AID":    ((), "COOPERATIVE",  5.0),
+    "EASE_SANCTIONS":      ((), "COOPERATIVE",  6.0),
+    "RELEASE":             ((), "COOPERATIVE",  5.0),
+    "TRUCE":               ((), "COOPERATIVE",  6.0),
+    "CUT_RELATIONS":       ((), "HOSTILE",     -4.0),
+    "REJECT_TRADE":        ((), "HOSTILE",     -3.0),
+    "REFUSE_EASE":         ((), "HOSTILE",     -4.0),
+    "THREATEN_SANCTION":   ((), "HOSTILE",     -5.0),
+    "THREATEN_FORCE":      ((), "HOSTILE",     -6.0),
+    "MILITARY_POSTURE":    ((), "HOSTILE",     -3.0),
+    "DEPORT":              ((), "HOSTILE",     -5.0),
+    "CYBER_ATTACK":        ((), "HOSTILE",     -7.0),
+    "ABDUCT":              ((), "HOSTILE",     -9.0),
+    "ASSASSINATION":       ((), "HOSTILE",     -9.0),
+    "BOMBING":             ((), "HOSTILE",     -9.0),
+    "ARMED_ATTACK":        ((), "HOSTILE",     -9.0),
+    "AIRSTRIKE":           ((), "HOSTILE",     -9.0),
+    "BLOCKADE":            ((), "HOSTILE",     -8.0),
+    "OCCUPY":              ((), "HOSTILE",     -8.0),
+    "VIOLATE_CEASEFIRE":   ((), "HOSTILE",     -7.0),
+    "MASS_VIOLENCE":       ((), "HOSTILE",    -10.0),
 }
 ACTION_NAMES = tuple(ACTIONS)
+LLM_ACTIONS = ACTION_NAMES[:23]        # the vocabulary the extraction prompt offers
 
-# CAMEO root code -> action (first match wins; more specific codes first)
+# What an event is *about*. Relations are summarised per (kind, topic) so a card can say
+# "diplomacy (26) · military (19)" instead of "27 cooperative · 19 hostile".
+TOPICS = ("nuclear", "sanctions", "trade", "territory", "military", "security", "diplomacy",
+          "detention", "migration", "energy", "technology", "cyber", "elections", "human_rights",
+          "humanitarian", "economy", "health", "environment", "crime", "other")
+
+# CAMEO root code -> action (coarse fallback when no finer prefix matches)
 CAMEO_ROOT_TO_ACTION = {
     "01": "STATEMENT", "02": "APPEAL", "03": "COOPERATE", "04": "MEET", "05": "AGREE", "06": "AGREE",
     "07": "AID", "08": "AGREE", "09": "STATEMENT", "10": "APPEAL", "11": "ACCUSE", "12": "REJECT",
     "13": "THREATEN", "14": "PROTEST", "15": "DEPLOY", "16": "SANCTION", "17": "COERCE",
     "18": "ATTACK", "19": "ATTACK", "20": "ATTACK",
 }
+CAMEO_ROOT_TOPIC = {
+    "01": "other", "02": "diplomacy", "03": "diplomacy", "04": "diplomacy", "05": "diplomacy",
+    "06": "economy", "07": "humanitarian", "08": "diplomacy", "09": "crime", "10": "diplomacy",
+    "11": "diplomacy", "12": "diplomacy", "13": "security", "14": "human_rights", "15": "military",
+    "16": "sanctions", "17": "security", "18": "security", "19": "military", "20": "human_rights",
+}
+
+# Full CAMEO code prefix -> (action, topic, label). Longest matching prefix wins.
+# Labels are CAMEO's own wording so the evidence panel can say "coded by GDELT as 051 praise or endorse".
+CAMEO_CODE_TO_ACTION = {
+    "036":  ("NEGOTIATE", "diplomacy", "express intent to meet or negotiate"),
+    "037":  ("NEGOTIATE", "diplomacy", "express intent to settle dispute"),
+    "039":  ("NEGOTIATE", "military", "express intent to de-escalate military engagement"),
+    "041":  ("CALL", "diplomacy", "discuss by telephone"),
+    "042":  ("VISIT", "diplomacy", "make a visit"),
+    "043":  ("HOST", "diplomacy", "host a visit"),
+    "044":  ("MEET", "diplomacy", "meet at a third location"),
+    "045":  ("MEDIATE", "diplomacy", "mediate"),
+    "046":  ("NEGOTIATE", "diplomacy", "engage in negotiation"),
+    "051":  ("PRAISE", "diplomacy", "praise or endorse"),
+    "052":  ("DEFEND", "diplomacy", "defend verbally"),
+    "053":  ("DEFEND", "diplomacy", "rally support on behalf of"),
+    "054":  ("RECOGNIZE", "diplomacy", "grant diplomatic recognition"),
+    "057":  ("SIGN_AGREEMENT", "diplomacy", "sign formal agreement"),
+    "061":  ("TRADE_COOPERATE", "trade", "cooperate economically"),
+    "062":  ("MILITARY_COOPERATE", "military", "cooperate militarily"),
+    "063":  ("COOPERATE", "crime", "engage in judicial cooperation"),
+    "064":  ("COOPERATE", "security", "share intelligence or information"),
+    "071":  ("ECONOMIC_AID", "economy", "provide economic aid"),
+    "072":  ("MILITARY_AID", "military", "provide military aid"),
+    "073":  ("HUMANITARIAN_AID", "humanitarian", "provide humanitarian aid"),
+    "074":  ("MILITARY_AID", "military", "provide military protection or peacekeeping"),
+    "075":  ("AID", "migration", "grant asylum"),
+    "0811": ("EASE_SANCTIONS", "human_rights", "ease restrictions on political freedoms"),
+    "0841": ("RELEASE", "detention", "return or release persons"),
+    "0842": ("RELEASE", "economy", "return or release property"),
+    "085":  ("EASE_SANCTIONS", "sanctions", "ease economic sanctions, boycott or embargo"),
+    "0871": ("TRUCE", "military", "declare truce or ceasefire"),
+    "0872": ("TRUCE", "military", "ease military blockade"),
+    "0873": ("TRUCE", "military", "demobilize armed forces"),
+    "0874": ("TRUCE", "military", "retreat or surrender militarily"),
+    "1121": ("ACCUSE", "crime", "accuse of crime or corruption"),
+    "1122": ("ACCUSE", "human_rights", "accuse of human rights abuses"),
+    "1123": ("ACCUSE", "military", "accuse of aggression"),
+    "1124": ("ACCUSE", "human_rights", "accuse of war crimes"),
+    "1125": ("ACCUSE", "security", "accuse of espionage or treason"),
+    "1211": ("REJECT_TRADE", "trade", "reject economic cooperation"),
+    "1212": ("REJECT", "military", "reject military cooperation"),
+    "1231": ("REFUSE_EASE", "detention", "refuse to release persons"),
+    "1233": ("REFUSE_EASE", "sanctions", "refuse to ease economic sanctions"),
+    "1244": ("REFUSE_EASE", "military", "refuse to de-escalate military engagement"),
+    "1311": ("THREATEN_SANCTION", "economy", "threaten to reduce or stop aid"),
+    "1312": ("THREATEN_SANCTION", "sanctions", "threaten with sanctions, boycott or embargo"),
+    "1313": ("THREATEN", "diplomacy", "threaten to reduce or break relations"),
+    "134":  ("THREATEN", "diplomacy", "threaten to halt negotiations"),
+    "138":  ("THREATEN_FORCE", "military", "threaten with military force"),
+    "1381": ("THREATEN_FORCE", "military", "threaten blockade"),
+    "1382": ("THREATEN_FORCE", "territory", "threaten occupation"),
+    "1385": ("THREATEN_FORCE", "nuclear", "threaten attack with WMD"),
+    "139":  ("THREATEN", "security", "give ultimatum"),
+    "15":   ("MILITARY_POSTURE", "military", "exhibit force posture"),
+    "155":  ("CYBER_ATTACK", "cyber", "mobilize or increase cyber-forces"),
+    "161":  ("CUT_RELATIONS", "diplomacy", "reduce or break diplomatic relations"),
+    "162":  ("SANCTION", "economy", "reduce or stop aid"),
+    "163":  ("SANCTION", "sanctions", "impose sanctions, boycott or embargo"),
+    "164":  ("CUT_RELATIONS", "diplomacy", "halt negotiations"),
+    "166":  ("DEPORT", "diplomacy", "expel or withdraw"),
+    "171":  ("COERCE", "economy", "seize or damage property"),
+    "172":  ("COERCE", "human_rights", "impose administrative sanctions"),
+    "173":  ("ARREST", "detention", "arrest, detain or charge"),
+    "174":  ("DEPORT", "migration", "expel or deport individuals"),
+    "175":  ("COERCE", "human_rights", "use tactics of violent repression"),
+    "176":  ("CYBER_ATTACK", "cyber", "attack cybernetically"),
+    "181":  ("ABDUCT", "security", "abduct, hijack or take hostage"),
+    "182":  ("ATTACK", "security", "physically assault"),
+    "183":  ("BOMBING", "security", "conduct suicide, car or other non-military bombing"),
+    "185":  ("ASSASSINATION", "security", "attempt to assassinate"),
+    "186":  ("ASSASSINATION", "security", "assassinate"),
+    "190":  ("ARMED_ATTACK", "military", "use conventional military force"),
+    "191":  ("BLOCKADE", "military", "impose blockade or restrict movement"),
+    "192":  ("OCCUPY", "territory", "occupy territory"),
+    "193":  ("ARMED_ATTACK", "military", "fight with small arms and light weapons"),
+    "194":  ("ARMED_ATTACK", "military", "fight with artillery and tanks"),
+    "195":  ("AIRSTRIKE", "military", "employ aerial weapons"),
+    "196":  ("VIOLATE_CEASEFIRE", "military", "violate ceasefire"),
+    "201":  ("MASS_VIOLENCE", "migration", "engage in mass expulsion"),
+    "202":  ("MASS_VIOLENCE", "human_rights", "engage in mass killings"),
+    "203":  ("MASS_VIOLENCE", "human_rights", "engage in ethnic cleansing"),
+    "204":  ("MASS_VIOLENCE", "nuclear", "use weapons of mass destruction"),
+}
+CAMEO_ROOT_LABELS = {
+    "01": "make public statement", "02": "appeal", "03": "express intent to cooperate", "04": "consult",
+    "05": "engage in diplomatic cooperation", "06": "engage in material cooperation", "07": "provide aid",
+    "08": "yield", "09": "investigate", "10": "demand", "11": "disapprove", "12": "reject", "13": "threaten",
+    "14": "protest", "15": "exhibit force posture", "16": "reduce relations", "17": "coerce", "18": "assault",
+    "19": "fight", "20": "use unconventional mass violence",
+}
+
+
+def cameo_action(code: str):
+    """
+    Full CAMEO code ("051", "1385") -> (action, topic, label). Longest matching prefix in
+    CAMEO_CODE_TO_ACTION wins; otherwise the 2-digit root. None when the root is unknown.
+    """
+    code = (code or "").strip()
+    for n in (4, 3, 2):
+        hit = CAMEO_CODE_TO_ACTION.get(code[:n])
+        if hit:
+            return hit
+    root = code[:2].zfill(2)
+    action = CAMEO_ROOT_TO_ACTION.get(root)
+    if not action:
+        return None
+    return action, CAMEO_ROOT_TOPIC.get(root, "other"), CAMEO_ROOT_LABELS.get(root, "event")
+
+
+# Actions where a->b and b->a are the same event (dedup on the unordered pair)
+SYMMETRIC_ACTIONS = {"MEET", "CALL", "NEGOTIATE", "SIGN_AGREEMENT", "COOPERATE", "AGREE", "TRUCE",
+                     "TRADE_COOPERATE", "MILITARY_COOPERATE"}
+
+# GDELT actor type codes that mean "the state acting": government, military, legislature,
+# intelligence, judiciary. A country actor with no type is a story *about* a place.
+STATE_ACTOR_TYPES = {"GOV", "MIL", "LEG", "SPY", "JUD"}
+
+# GDELT country-code slots that are regions, not countries — never an actor or target
+GDELT_REGION_CODES = {"EUR", "AFR", "ASA", "NMR", "SAM", "MEA", "WST", "LAM", "CRB", "SAS", "EEC",
+                      "BLK", "SCN", "EAF", "WAF", "NAF", "SAF", "CAU", "CAS", "SEA", "PGS", "MDT", "BLT"}
+GDELT_KNOWN_GROUPS = {"UNO": "Q1065", "NAT": "Q7184", "EEC": "Q458", "IGOEEC": "Q458", "IGOUNO": "Q1065",
+                      "IGONAT": "Q7184", "OPC": "Q7795", "ARL": "Q7172", "AFU": "Q7159", "ASN": "Q7768",
+                      "IMF": "Q8885", "WBK": "Q7164", "WTO": "Q7825", "GSS": "Q83184"}
+
+# P31 classes that mean "a body of a government": as an actor or target of an event the body
+# collapses to its country (the prompt's rule 5: forces, ministries, embassies → the COUNTRY).
+GOVERNMENT_BODY_CLASSES = {
+    "Q327333",    # government agency
+    "Q192350",    # ministry
+    "Q35798",     # executive branch
+    "Q2659904",   # government organization
+    "Q11204",     # legislature
+    "Q772547",    # armed forces
+    "Q61883",     # military branch
+    "Q176799",    # military unit
+    "Q47913",     # intelligence agency
+    "Q20857065",  # agency of the United States federal government
+    "Q910252",    # United States federal executive department
+    "Q1063523",   # department (government)
+    "Q640506",    # executive office of a head of state
+    "Q4498974",   # cabinet
+    "Q17102106",  # embassy
+}
+
+# Continents: places, never actors or targets
+CONTINENT_QIDS = {"Q15", "Q46", "Q48", "Q49", "Q18", "Q538", "Q51", "Q5401", "Q828"}
 
 RELATION_KINDS = ("HOSTILE", "COOPERATIVE", "ROLE", "OWNERSHIP", "MEMBERSHIP", "LOCATED", "MENTIONED_WITH")
 

@@ -1,6 +1,7 @@
 # PIA — State of the Project and Where It Can Go
 
 **Written:** 2026-09-15, after two working days on the three repositories (`pia`, `pia-api`, `pia-ui`).
+**Superseded for the current picture by:** `PIA_CONCEPT_AND_SYSTEM.md` (2026-09-19). This file remains the history and decision record.
 **Purpose:** one document that records what was found, what was built, what was decided in
 discussion, what is still open, and what the project can become. Everything else in `docs/` is a
 detail of something in here.

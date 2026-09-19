@@ -15,7 +15,7 @@ from loguru import logger
 
 from pia.kg import wikidata
 from pia.kg.normalize import looks_generic, normalize
-from pia.kg.ontology import GOVERNMENT_SEATS, KINDS
+from pia.kg.ontology import CONTINENT_QIDS, GOVERNMENT_BODY_CLASSES, GOVERNMENT_SEATS, KINDS
 
 KIND_COMPAT = {  # a hint from the extractor vs the kind Wikidata gives
     "PERSON": {"PERSON"}, "ORG": {"ORG", "COUNTRY"}, "COUNTRY": {"COUNTRY", "PLACE"},
@@ -59,9 +59,9 @@ class Resolver:
                 ent = dict(ent, role="GOVERNMENT")
                 return ent
 
-        local = self._lookup_local(norm, kind_hint, context, strict_country=local_only)
+        local = self._lookup_local(norm, kind_hint, context, strict_country=local_only, role=role)
         if local:
-            return local
+            return self._as_actor(local, role)
         if local_only:
             return None
 
@@ -79,7 +79,7 @@ class Resolver:
             return self._local_entity(surface, kind_hint, review=True, note="best candidate is not a person/org/place",
                                       candidates=[c["parsed"]["qid"] for c in scored[:5]])
         if best["score"] >= AUTO_MIN and best["score"] - second >= AUTO_MARGIN:
-            return self.upsert_wikidata(best["parsed"])
+            return self._as_actor(self.upsert_wikidata(best["parsed"]), role)
 
         if self.llm_choose and best["score"] >= 1.0:
             idx = self.llm_choose(surface, context, [c["parsed"] for c in scored[:5]])
@@ -91,6 +91,29 @@ class Resolver:
 
         return self._local_entity(surface, kind_hint, review=True, note="ambiguous",
                                   candidates=[c["parsed"]["qid"] for c in scored[:5]])
+
+    def _as_actor(self, ent: Optional[dict], role: str) -> Optional[dict]:
+        """
+        Actor/target hygiene: a continent is never an actor; a government body (ministry, armed
+        force, agency) acts as its country — the mention keeps the body, the event uses the
+        country (returned under `event_entity`).
+        """
+        if not ent or role not in ("ACTOR", "TARGET"):
+            return ent
+        if ent.get("qid") in CONTINENT_QIDS:
+            return None
+        if ent.get("kind") == "ORG" and ent.get("country_qid"):
+            p31 = set((ent.get("p31") or []))
+            if not p31 and ent.get("entity_id"):
+                row = self.db.execute_query("SELECT metadata->'p31' AS p31 FROM entities WHERE entity_id = %s",
+                                            (ent["entity_id"],), fetch=True)
+                raw = row[0]["p31"] if row else None
+                p31 = set(json.loads(raw) if isinstance(raw, str) else (raw or []))
+            if p31 & GOVERNMENT_BODY_CLASSES:
+                country = self.ensure_qid(ent["country_qid"])
+                if country and country.get("kind") == "COUNTRY":
+                    return dict(ent, event_entity=country)
+        return ent
 
     def ensure_qid(self, qid: str) -> Optional[dict]:
         """Loads a Wikidata item into the store if missing; returns the entity dict."""
@@ -136,10 +159,11 @@ class Resolver:
 
     # ── internals ─────────────────────────────────────────────────────────────
 
-    def _lookup_local(self, norm: str, kind_hint, context, strict_country: bool = False) -> Optional[dict]:
+    def _lookup_local(self, norm: str, kind_hint, context, strict_country: bool = False, role: str = "MENTIONED") -> Optional[dict]:
         rows = self.db.execute_query("""
             SELECT e.entity_id, e.qid, e.kind, e.name, e.resolution, e.sitelinks, e.country_qid,
-                   COALESCE((e.metadata->>'population')::bigint, 0) AS population
+                   COALESCE((e.metadata->>'population')::bigint, 0) AS population,
+                   COALESCE(e.metadata->'p31', '[]'::jsonb) AS p31
             FROM entity_aliases a JOIN entities e ON e.entity_id = a.entity_id
             WHERE a.alias_norm = %s AND e.resolution IN ('RESOLVED','LOCAL')
         """, (norm,), fetch=True) or []
@@ -153,8 +177,12 @@ class Resolver:
         if len(rows) == 1:
             return dict(rows[0])
 
+        actor_role = role in ("ACTOR", "TARGET")
+
         def rank(r):
-            return ((r["country_qid"] == ctx_country) if ctx_country else 0, r["sitelinks"] or 0, r["population"] or 0)
+            # "China" said/did something → the country, not the region or a town of the same name
+            return (1 if (actor_role and r["kind"] == "COUNTRY") else 0,
+                    (r["country_qid"] == ctx_country) if ctx_country else 0, r["sitelinks"] or 0, r["population"] or 0)
         rows.sort(key=rank, reverse=True)
         return dict(rows[0])
 

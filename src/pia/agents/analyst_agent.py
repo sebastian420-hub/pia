@@ -21,7 +21,7 @@ from pia.core.base_agent import BaseAgent
 from pia.core.database import DatabaseManager
 from pia.core.nlp import ExtractionError, NLPManager
 from pia.kg.normalize import normalize
-from pia.kg.ontology import ACTIONS
+from pia.kg.ontology import ACTIONS, LLM_ACTIONS, TOPICS
 from pia.kg.resolver import Resolver
 
 
@@ -179,8 +179,11 @@ class AnalystAgent(BaseAgent):
         published = report['published_at'] or report['created_at']
         for ev in events:
             action = str(ev.get("action", "OTHER")).upper()
-            if action not in ACTIONS:
+            if action not in LLM_ACTIONS:
                 action = "OTHER"
+            topic = str(ev.get("topic") or "other").lower().strip()
+            if topic not in TOPICS:
+                topic = "other"
             actor = self._lookup(ev.get("actor"), resolved, "ACTOR", context)
             if not actor or actor['resolution'] != 'RESOLVED':
                 continue  # strict: no event without a known actor
@@ -195,22 +198,24 @@ class AnalystAgent(BaseAgent):
             geo = self._entity_geo(location) if location else None
             dedup = hashlib.sha1(f"{actor['entity_id']}|{target['entity_id'] if target else ''}|{action}|{when.date()}|{report['source_id']}".encode()).hexdigest()
             self.db.execute_query("""
-                INSERT INTO events (event_time, time_precision, action, actor_id, target_id, location_id, geo,
-                                    report_uid, source_id, origin, quote, confidence, tone, dedup_key)
-                VALUES (%s, %s, %s, %s, %s, %s, %s::geometry, %s, %s, 'llm', %s, %s, %s, %s)
+                INSERT INTO events (event_time, time_precision, action, kind, actor_id, target_id, location_id, geo,
+                                    report_uid, source_id, origin, quote, confidence, tone, topic, dedup_key)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::geometry, %s, %s, 'llm', %s, %s, %s, %s, %s)
                 ON CONFLICT (dedup_key, event_time) DO NOTHING
-            """, (when, precision, action, actor['entity_id'], target['entity_id'] if target else None,
+            """, (when, precision, action, ACTIONS[action][1], actor['entity_id'], target['entity_id'] if target else None,
                   location['entity_id'] if location else None, geo, report['uid'], report['source_id'],
-                  str(ev.get("quote") or "")[:1000], round(conf, 3), ACTIONS[action][2], dedup))
+                  str(ev.get("quote") or "")[:1000], round(conf, 3), ACTIONS[action][2], topic, dedup))
 
     def _lookup(self, surface, resolved, role, context) -> Optional[dict]:
         if not surface:
             return None
         surface = str(surface).strip()
-        if surface in resolved:
-            return resolved[surface]
-        ent = self.resolver.resolve(surface, role=role, context=context)
-        resolved[surface] = ent
+        if surface not in resolved:
+            resolved[surface] = self.resolver.resolve(surface, role=role, context=context)
+        ent = resolved[surface]
+        # a ministry / armed force / agency acts as its country in events (mention keeps the body)
+        if ent and role in ("ACTOR", "TARGET") and ent.get("event_entity"):
+            return ent["event_entity"]
         return ent
 
     @staticmethod

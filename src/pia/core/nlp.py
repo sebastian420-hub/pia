@@ -89,12 +89,17 @@ You extract structured facts from one news article for a knowledge graph. Output
   "events": [
     {"actor": "surface from mentions", "action": "ONE OF THE ACTIONS BELOW", "target": "surface from mentions or null",
      "location": "surface from mentions or null", "date": "YYYY-MM-DD or null", "precision": "day|month",
-     "quote": "the exact sentence from the article that states this", "confidence": 0.0-1.0}
+     "topic": "ONE OF THE TOPICS BELOW", "quote": "the exact sentence from the article that states this",
+     "confidence": 0.0-1.0}
   ]
 }
 
 ACTIONS: STATEMENT, APPEAL, COOPERATE, MEET, AGREE, AID, VISIT, ACCUSE, REJECT, THREATEN, PROTEST, SANCTION,
 COERCE, ARREST, ATTACK, APPOINT, RESIGN, ELECT, ACQUIRE, INVEST, DEPLOY, DISASTER, OTHER
+
+TOPICS (what the action is ABOUT, not the action itself): nuclear, sanctions, trade, territory, military,
+security, diplomacy, detention, migration, energy, technology, cyber, elections, human_rights, humanitarian,
+economy, health, environment, crime, other
 
 Rules:
 1. Mentions are specific named things only: people, organisations, countries, places, ships, aircraft.
@@ -111,6 +116,8 @@ Rules:
 7. Use the article's own words in "quote"; do not paraphrase. If the text does not state it, do not extract it.
 8. Prefer fewer, certain events over many doubtful ones. 0 events is a valid answer.
 9. Dates: use the publication date when the text says "today"/"yesterday" relative to it.
+10. Topic is the subject: "US granted visas to Iranian officials for the UN" → action OTHER, topic migration;
+    "talks on the nuclear programme" → topic nuclear; "strikes on a base" → topic military; tariffs → trade.
 """
 
     def _get_next_model(self) -> str:

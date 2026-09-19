@@ -22,6 +22,7 @@ from pia.kg import wikidata
 from pia.kg.resolver import Resolver
 
 CACHE = os.path.join("data", "wikidata_backbone.jsonl")
+CLASS_CACHE = os.path.join("data", "wikidata_classes.jsonl")   # class_qid → kind, so a reload needs no class walks
 
 # (label, SPARQL returning ?item). Keep each under ~10k rows.
 QUERIES = [
@@ -92,30 +93,73 @@ def fetch_to_cache(qids: list):
                 logger.info(f"fetched {i + len(batch)}/{len(todo)}")
 
 
+def import_class_cache(db):
+    """wikidata_classes from data/wikidata_classes.jsonl (written by export_class_cache)."""
+    if not os.path.exists(CLASS_CACHE):
+        return 0
+    rows = []
+    with open(CLASS_CACHE) as f:
+        for line in f:
+            try:
+                d = json.loads(line)
+                rows.append((d["class_qid"], d.get("label"), d["kind"]))
+            except Exception:
+                continue
+    if rows:
+        db.execute_values("INSERT INTO wikidata_classes (class_qid, label, kind) VALUES %s ON CONFLICT (class_qid) DO NOTHING", rows)
+    return len(rows)
+
+
+def export_class_cache(db):
+    rows = db.execute_query("SELECT class_qid, label, kind FROM wikidata_classes", fetch=True) or []
+    with open(CLASS_CACHE, "w") as f:
+        for r in rows:
+            f.write(json.dumps({"class_qid": r["class_qid"], "label": r["label"], "kind": r["kind"]}) + "\n")
+    return len(rows)
+
+
 def load_cache(db):
+    """
+    Two phases so a reload is minutes, not hours:
+      1. every item is upserted with the kind its P31 classes already give (KNOWN_CLASS_KINDS +
+         wikidata_classes); classes nobody knows are provisionally UNKNOWN — no network calls
+      2. the distinct unknown classes are walked on Wikidata once each, cached in
+         wikidata_classes (and data/wikidata_classes.jsonl), and the affected entities re-typed
+    """
+    from pia.kg.ontology import KNOWN_CLASS_KINDS
     resolver = Resolver(db)
-    n = 0
+    n_classes = import_class_cache(db)
+    known = dict(KNOWN_CLASS_KINDS)
+    for r in db.execute_query("SELECT class_qid, kind FROM wikidata_classes", fetch=True) or []:
+        known[r["class_qid"]] = r["kind"]
+    logger.info(f"{len(known)} classes known ({n_classes} from {CLASS_CACHE})")
+
+    items, unknown = [], set()
     with open(CACHE) as f:
         for line in f:
             try:
                 p = json.loads(line)
             except Exception:
                 continue
-            resolver.upsert_wikidata(p)
-            n += 1
-            if n % 1000 == 0:
-                logger.info(f"loaded {n}")
-    logger.success(f"backbone loaded: {n} items")
+            items.append(p)
+            for cls in p.get("p31", [])[:5]:
+                if cls not in known:
+                    unknown.add(cls)
+    # phase 1: provisional kinds, no network
+    resolver._class_cache.update(known)
+    resolver._class_cache.update({c: "UNKNOWN" for c in unknown})
+    n = 0
+    for p in items:
+        resolver.upsert_wikidata(p)
+        n += 1
+        if n % 5000 == 0:
+            logger.info(f"loaded {n}/{len(items)}")
+    logger.success(f"backbone loaded: {n} items; {len(unknown)} classes still to classify")
+
     # second pass: static relations whose targets arrived later in the file
     rows = db.execute_query("SELECT entity_id, metadata->'pending_relations' AS pend FROM entities WHERE metadata ? 'pending_relations'", fetch=True) or []
     logger.info(f"{len(rows)} entities with pending relations; re-linking")
-    with open(CACHE) as f:
-        by_qid = {}
-        for line in f:
-            try:
-                p = json.loads(line); by_qid[p["qid"]] = p
-            except Exception:
-                pass
+    by_qid = {p["qid"]: p for p in items}
     relinked = 0
     for r in rows:
         ent = db.execute_query("SELECT qid FROM entities WHERE entity_id = %s", (r["entity_id"],), fetch=True)[0]
@@ -124,6 +168,35 @@ def load_cache(db):
             resolver._store_static_relations(r["entity_id"], p.get("relations", []))
             relinked += 1
     logger.success(f"relinked {relinked}")
+
+    # phase 2: classify the unknown classes (network, ~1 req/s shared limit), then re-type entities
+    if unknown:
+        logger.info(f"classifying {len(unknown)} classes on Wikidata (joint walk) …")
+        todo = sorted(unknown)
+        for i in range(0, len(todo), 500):
+            kinds = wikidata.classify_classes(todo[i:i + 500])
+            db.execute_values("INSERT INTO wikidata_classes (class_qid, kind) VALUES %s ON CONFLICT (class_qid) DO UPDATE SET kind = EXCLUDED.kind",
+                              list(kinds.items()))
+            known.update(kinds)
+            logger.info(f"classified {min(i + 500, len(todo))}/{len(todo)}")
+            retype_unknown(db, items, known)
+            export_class_cache(db)
+    logger.info(f"class cache written: {export_class_cache(db)} classes → {CLASS_CACHE}")
+
+
+def retype_unknown(db, items, known):
+    """Entities still UNKNOWN whose P31 now maps to a kind."""
+    changed = 0
+    for p in items:
+        for cls in p.get("p31", [])[:5]:
+            k = known.get(cls)
+            if k and k != "UNKNOWN":
+                res = db.execute_query("UPDATE entities SET kind = %s WHERE qid = %s AND kind = 'UNKNOWN' RETURNING 1", (k, p["qid"]), fetch=True)
+                changed += 1 if res else 0
+                break
+    if changed:
+        logger.info(f"re-typed {changed} entities")
+    return changed
 
 
 if __name__ == "__main__":

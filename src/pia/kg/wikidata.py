@@ -165,6 +165,59 @@ _ROOT_KIND = {q: kind for kind, qs in KIND_ROOTS for q in qs}
 _class_memo: Dict[str, str] = {}
 
 
+def classify_classes(class_qids: List[str], max_depth: int = 7) -> Dict[str, str]:
+    """
+    Many classes at once: one joint breadth-first walk over 'subclass of', so a backbone reload
+    needs a few hundred requests instead of one walk per class. -> {class_qid: kind|UNKNOWN}
+    """
+    result: Dict[str, str] = {}
+    frontier: Dict[str, List[str]] = {}          # class -> its current frontier of ancestors
+    seen: Dict[str, set] = {}
+    for c in dict.fromkeys(class_qids):
+        if c in KNOWN_CLASS_KINDS:
+            result[c] = KNOWN_CLASS_KINDS[c]
+        elif c in _class_memo:
+            result[c] = _class_memo[c]
+        else:
+            frontier[c] = [c]
+            seen[c] = {c}
+    parent_cache: Dict[str, List[str]] = {}
+    try:
+        for _ in range(max_depth):
+            need = sorted({q for fr in frontier.values() for q in fr if q not in parent_cache})
+            for i in range(0, len(need), 50):
+                parent_cache.update(_superclasses(need[i:i + 50]))
+            nxt: Dict[str, List[str]] = {}
+            for c, fr in frontier.items():
+                new = []
+                hit = None
+                for q in fr:
+                    for p in parent_cache.get(q, []):
+                        if p in _ROOT_KIND or p in KNOWN_CLASS_KINDS:
+                            hit = _ROOT_KIND.get(p) or KNOWN_CLASS_KINDS[p]
+                            break
+                        if p not in seen[c]:
+                            seen[c].add(p)
+                            new.append(p)
+                    if hit:
+                        break
+                if hit:
+                    result[c] = hit
+                    _class_memo[c] = hit
+                elif new:
+                    nxt[c] = new[:60]
+            frontier = nxt
+            if not frontier:
+                break
+    except Exception as e:
+        logger.warning(f"classify_classes: {e}")
+    for c in frontier:                            # ran out of depth or failed: unknown for now
+        result.setdefault(c, "UNKNOWN")
+    for c in class_qids:
+        result.setdefault(c, "UNKNOWN")
+    return result
+
+
 def classify_class(class_qid: str, max_depth: int = 7) -> Optional[str]:
     """
     kind for a P31 class by walking 'subclass of' upwards (breadth-first, ≤ max_depth levels)
