@@ -183,9 +183,12 @@ class Resolver:
         actor_role = role in ("ACTOR", "TARGET")
 
         def rank(r):
-            # "China" said/did something → the country, not the region or a town of the same name
+            # "China" said/did something → the country, not the region or a town of the same name.
+            # GeoNames cities carry no sitelinks: a big city must still outrank a small ship or
+            # company that happens to share its name ("Copenhagen").
+            prominence = (r["sitelinks"] or 0) + (200 if (r["population"] or 0) >= 100_000 else 0)
             return (1 if (actor_role and r["kind"] == "COUNTRY") else 0,
-                    (r["country_qid"] == ctx_country) if ctx_country else 0, r["sitelinks"] or 0, r["population"] or 0)
+                    (r["country_qid"] == ctx_country) if ctx_country else 0, prominence, r["population"] or 0)
         rows.sort(key=rank, reverse=True)
         return dict(rows[0])
 
