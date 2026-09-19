@@ -176,6 +176,9 @@ class Resolver:
             return None
         if len(rows) == 1:
             return dict(rows[0])
+        if strict_country and not ctx_country and len({r["country_qid"] for r in rows if r["country_qid"]}) > 1 \
+                and not any(r["kind"] == "COUNTRY" for r in rows):
+            return None   # "House of Representatives" of eight countries, no country context: not guessable
 
         actor_role = role in ("ACTOR", "TARGET")
 

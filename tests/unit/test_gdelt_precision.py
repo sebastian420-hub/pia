@@ -162,3 +162,21 @@ def test_no_quote_and_geo_only_in_actor_country(agent):
                       if "'gdelt', 'gdelt', NULL" in l][0]
     ingest(agent, row("UNITED STATES", "USA", "GOV", "IRAN", "IRN", "GOV", "052", geo_cc="IR"))
     assert agent.db.events[1][5] is True
+
+
+def test_role_words_and_loose_aliases_are_not_actors(agent):
+    # "CITIZEN" is a role; "ARIZONA" is only a Wikidata alias of the University of Arizona
+    agent.resolver.local["arizona"] = {"entity_id": "ua", "qid": "Q503419", "kind": "ORG", "name": "University of Arizona",
+                                       "resolution": "RESOLVED", "country_qid": "Q30"}
+    assert ingest(agent, row("CITIZEN", "", "CVL", "IRAN", "IRN", "GOV", "051")) == 0
+    assert ingest(agent, row("ARIZONA", "", "", "IRAN", "IRN", "GOV", "051")) == 0
+    assert ingest(agent, row("MICROSOFT", "", "BUS", "IRAN", "IRN", "GOV", "163")) == 1
+
+
+def test_role_words_and_loose_aliases_are_not_actors(agent):
+    # "CITIZEN" is a role; "ARIZONA" is only a Wikidata alias of the University of Arizona
+    agent.resolver.local["arizona"] = {"entity_id": "ua", "qid": "Q503419", "kind": "ORG", "name": "University of Arizona",
+                                       "resolution": "RESOLVED", "country_qid": "Q30"}
+    assert ingest(agent, row("CITIZEN", "", "CVL", "IRAN", "IRN", "GOV", "051")) == 0
+    assert ingest(agent, row("ARIZONA", "", "", "IRAN", "IRN", "GOV", "051")) == 0
+    assert ingest(agent, row("MICROSOFT", "", "BUS", "IRAN", "IRN", "GOV", "163")) == 1

@@ -17,6 +17,7 @@ import hashlib
 import io
 import os
 import re
+import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -29,8 +30,9 @@ from pia.core.database import DatabaseManager
 from pia.ingest.article import outlet_from_url
 from pia.kg.geo_codes import fips_to_iso2
 from pia.kg.normalize import normalize
-from pia.kg.ontology import (ACTIONS, CONTINENT_QIDS, GDELT_KNOWN_GROUPS, GDELT_REGION_CODES,
-                             GOVERNMENT_SEATS, STATE_ACTOR_TYPES, SYMMETRIC_ACTIONS, cameo_action)
+from pia.kg.ontology import (ACTIONS, CONTINENT_QIDS, GDELT_GENERIC_ACTORS, GDELT_KNOWN_GROUPS,
+                             GDELT_REGION_CODES, GOVERNMENT_SEATS, STATE_ACTOR_TYPES, SYMMETRIC_ACTIONS,
+                             cameo_action)
 from pia.kg.resolver import Resolver
 
 LASTUPDATE = "http://data.gdeltproject.org/gdeltv2/lastupdate.txt"
@@ -61,6 +63,23 @@ def page_title(url: str, timeout: float = 5.0) -> str:
         return _html.unescape(re.sub(r"\s+", " ", m.group(1))).strip()[:300]
     except Exception:
         return ""
+
+
+def fetch_export(url: str, attempts: int = 3) -> str:
+    """Download and unzip one export file. A flaky link gets a few quick retries; 404 raises at once."""
+    last = None
+    for i in range(attempts):
+        try:
+            z = requests.get(url, timeout=25)
+            z.raise_for_status()
+            with zipfile.ZipFile(io.BytesIO(z.content)) as zf:
+                return zf.read(zf.namelist()[0]).decode("utf-8", "replace")
+        except requests.exceptions.HTTPError:
+            raise
+        except Exception as e:                    # connection reset, SSL EOF, timeout, bad zip
+            last = e
+            time.sleep(2 * (i + 1))
+    raise last  # type: ignore[misc]
 
 
 class GdeltAgent(BaseAgent):
@@ -106,12 +125,7 @@ class GdeltAgent(BaseAgent):
         logger.success(f"GDELT {url.rsplit('/', 1)[-1]}: {kept} events kept")
 
     def ingest_url(self, url: str) -> int:
-        z = requests.get(url, timeout=60)
-        z.raise_for_status()
-        with zipfile.ZipFile(io.BytesIO(z.content)) as zf:
-            name = zf.namelist()[0]
-            text = zf.read(name).decode("utf-8", "replace")
-        return self.ingest(text, url)
+        return self.ingest(fetch_export(url), url)
 
     # ── actors ───────────────────────────────────────────────────────────────
 
@@ -141,12 +155,16 @@ class GdeltAgent(BaseAgent):
                 if other_is_state and sources >= self.MIN_SOURCES_UNTYPED:
                     return self.resolver.ensure_qid(qid), True, False
                 return None, False, None      # None = "untyped country name": may be retried once the other side is known
-        if not name:
-            return None, False, False
+        if not name or norm in GDELT_GENERIC_ACTORS:
+            return None, False, False          # "CITIZEN", "AIR FORCE", "PRINCE": a role, not a thing
         ent = self.resolver.resolve(self._title(name), role="ACTOR", context={"country_qid": qid}, local_only=True)
         if ent and ent.get('event_entity'):
             ent = ent['event_entity']            # "State Department" → United States
         if not ent or ent['resolution'] != 'RESOLVED' or ent['kind'] not in ACTOR_KINDS or ent['qid'] in CONTINENT_QIDS:
+            return None, False, False
+        # a wire name must match the thing's own label, not a loose Wikidata alias
+        # ("Arizona" is an alias of the University of Arizona; "Missouri" of a battleship)
+        if ent['kind'] != 'COUNTRY' and normalize(ent['name']) != norm and ent.get('role') != 'GOVERNMENT':
             return None, False, False
         return ent, ent['kind'] == 'COUNTRY', True
 

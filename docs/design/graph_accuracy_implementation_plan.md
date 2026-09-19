@@ -1,7 +1,10 @@
 # Graph accuracy — implementation plan
 
-**Status:** BUILT 2026-09-19 (A, B, C, D coded; 70 unit tests pass). Verification pending the
-7-day GDELT backfill and OpenRouter credit (agents are stopped until the owner adds credit).
+**Status:** BUILT + VERIFIED 2026-09-19 (71 unit + 12 API tests; screenshots `ui_research/web_05_usa_sectors.jpg`,
+`web_06_usa_iran_card.jpg`, `web_07_usa_india_evidence.jpg`). 7 days of GDELT replayed (9,342 events, 0 synthetic
+quotes); USA web = 41 neighbours, all countries / IGOs / companies — no continents, no second China, no universities
+or battleships (a late fix: wire names must match the entity's own label, role words are never actors). Credit added;
+all agents running again.
 **Incident, same day:** rebuilding the API container recreated Postgres and the database came
 back empty. Root cause: `docker-compose.yml` mounted the data volume at `/var/lib/postgresql/data`
 while the timescaledb-ha image keeps its cluster at `/home/postgres/pgdata/data` — the data had

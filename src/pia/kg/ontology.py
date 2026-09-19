@@ -237,6 +237,29 @@ GOVERNMENT_BODY_CLASSES = {
     "Q17102106",  # embassy
 }
 
+# GDELT actor names that are roles or generic groups (CAMEO actor dictionary), never a specific
+# thing on their own. With a country code and a state type they already collapse to the country.
+GDELT_GENERIC_ACTORS = {
+    "air force", "army", "navy", "marines", "coast guard", "national guard", "police", "sheriff",
+    "military", "soldier", "soldiers", "troops", "citizen", "citizens", "civilian", "civilians",
+    "resident", "residents", "people", "public", "community", "family", "families", "child",
+    "children", "woman", "women", "man", "men", "student", "students", "university", "school",
+    "college", "teacher", "doctor", "nurse", "hospital", "church", "mosque", "media", "press",
+    "journalist", "reporter", "lawyer", "attorney", "prosecutor", "judge", "court", "jury",
+    "company", "business", "businessman", "industry", "bank", "farmer", "worker", "workers",
+    "employee", "employees", "union", "labor", "protester", "protesters", "demonstrator",
+    "activist", "activists", "rebel", "rebels", "militant", "militants", "terrorist", "insurgent",
+    "refugee", "refugees", "migrant", "migrants", "immigrant", "voter", "voters", "candidate",
+    "leader", "leaders", "official", "officials", "authorities", "government", "administration",
+    "president", "prime minister", "minister", "ministry", "secretary", "senator", "senate",
+    "congress", "congressman", "parliament", "legislature", "lawmaker", "lawmakers", "governor",
+    "mayor", "council", "king", "queen", "prince", "princess", "royal", "chief", "commander",
+    "general", "officer", "spokesman", "spokesperson", "expert", "analyst", "scientist",
+    "economist", "critic", "opposition", "party", "coalition", "house", "state", "city", "town",
+    "village", "province", "region", "county", "nation", "country", "world", "guard", "force",
+    "forces", "group", "agency", "department", "office", "committee", "commission", "board",
+}
+
 # Continents: places, never actors or targets
 CONTINENT_QIDS = {"Q15", "Q46", "Q48", "Q49", "Q18", "Q538", "Q51", "Q5401", "Q828"}
 

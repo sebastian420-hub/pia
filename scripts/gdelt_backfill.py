@@ -20,21 +20,23 @@ from loguru import logger
 from pia.agents.gdelt_agent import GdeltAgent
 from pia.kg import relations
 
-MASTER = "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt"
 DONE = os.path.join("data", "gdelt_backfill.done")
 
 
 def export_urls(days: int):
-    r = requests.get(MASTER, timeout=120)
-    r.raise_for_status()
-    cutoff = time.strftime("%Y%m%d", time.gmtime(time.time() - days * 86400))
+    """
+    GDELT publishes one export every 15 minutes at a predictable URL, so the URLs are generated
+    rather than read from masterfilelist.txt (128 MB, and a slow link stalls on it). A slot
+    GDELT never published answers 404 and is skipped.
+    """
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    now -= timedelta(minutes=now.minute % 15 + 15)          # the latest slot may not be out yet
+    t = now - timedelta(days=days)
     urls = []
-    for line in r.text.splitlines():
-        parts = line.split()
-        if len(parts) == 3 and parts[2].endswith(".export.CSV.zip"):
-            stamp = parts[2].rsplit("/", 1)[-1][:8]
-            if stamp >= cutoff:
-                urls.append(parts[2])
+    while t <= now:
+        urls.append(f"http://data.gdeltproject.org/gdeltv2/{t.strftime('%Y%m%d%H%M%S')}.export.CSV.zip")
+        t += timedelta(minutes=15)
     return urls
 
 
@@ -54,17 +56,36 @@ def main():
     urls = [u for u in export_urls(args.days) if u not in done]
     logger.info(f"{len(urls)} export files to replay")
     total = 0
-    for i, url in enumerate(urls, 1):
+    # downloads run ahead of ingestion (the link is the bottleneck, the database is not)
+    from concurrent.futures import ThreadPoolExecutor
+    from pia.agents.gdelt_agent import fetch_export
+
+    def get(url):
         try:
-            kept = agent.ingest_url(url)
+            return url, fetch_export(url), None
+        except requests.exceptions.HTTPError as e:
+            return url, None, ("skip" if getattr(e.response, "status_code", 0) == 404 else str(e))
         except Exception as e:
-            logger.warning(f"{url}: {e}")
-            continue
-        total += kept
-        with open(DONE, "a") as fh:
-            fh.write(url + "\n")
-        if i % 8 == 0:
-            logger.info(f"{i}/{len(urls)} files, {total} events kept")
+            return url, None, str(e)
+
+    done_n = 0
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for url, text, err in pool.map(get, urls):
+            done_n += 1
+            if text is None:
+                if err != "skip":
+                    logger.warning(f"{url}: {err}")
+                continue
+            try:
+                kept = agent.ingest(text, url)
+            except Exception as e:
+                logger.warning(f"{url}: ingest failed: {e}")
+                continue
+            total += kept
+            with open(DONE, "a") as fh:
+                fh.write(url + "\n")
+            if done_n % 8 == 0:
+                logger.info(f"{done_n}/{len(urls)} files, {total} events kept")
     relations.rebuild(agent.db)
     logger.success(f"backfill done: {total} events kept from {len(urls)} files")
     agent.db.close()
