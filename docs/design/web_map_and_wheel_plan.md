@@ -1,7 +1,10 @@
 # The web, readable at both distances — "web layer on the globe" and "wheel"
 
-**Status:** PLAN 2026-09-19 — after the owner's verdict on the force graph: *"not easy to use, due to
-messiness"* and *"when you look from far it should show it too, but more clearly and nicely."*
+**Status:** BUILT 2026-09-19 — wheel (`ui_research/web_08_wheel_usa.jpg`, `web_08b_wheel_iran_dashboard.jpg`)
+and globe web layer (`web_09_globe_web.jpg`, `web_10_globe_arc_evidence.jpg`); person countries backfilled
+(1,917 / 1,960). Open: label declutter on the globe at far zoom (Cesium has none; Europe's labels overlap),
+arcs win picks over labels they cross. Written after the owner's verdict on the force graph: *"not easy to
+use, due to messiness"* and *"when you look from far it should show it too, but more clearly and nicely."*
 **Follows from:** `graph_accuracy_implementation_plan.md` (data is now clean; the picture is not).
 **Goal:** replace the force-directed graph with two deterministic pictures of the same data:
 a **web layer on the globe** (far) and a **wheel around one entity** (near). Nothing moves on its

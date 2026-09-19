@@ -128,6 +128,9 @@ def parse_entity(ent: dict) -> dict:
             coords = (v["latitude"], v["longitude"])
             break
     country = next((v["id"] for v, _ in _claim_values(ent, "P17") if isinstance(v, dict) and "id" in v), None)
+    if not country:   # people: country of citizenship (first current one)
+        country = next((v["id"] for v, ended in _claim_values(ent, "P27") if isinstance(v, dict) and "id" in v and not ended), None) \
+            or next((v["id"] for v, _ in _claim_values(ent, "P27") if isinstance(v, dict) and "id" in v), None)
     iso3 = next((v for v, _ in _claim_values(ent, "P298") if isinstance(v, str)), None)
     iso2 = next((v for v, _ in _claim_values(ent, "P297") if isinstance(v, str)), None)
     relations = []
