@@ -54,3 +54,23 @@ Rough score: **hostile / material lines ≈ 70 % right; cooperative / verbal lin
 
 Recommendation: A + B now (an afternoon), C + D next (a day). After A+B the counts drop
 sharply — that is the point.
+
+## 4. Re-audit after "true lines" (2026-09-20, ~14 h of reading)
+
+Same method: 7 random **verified** events behind each of the 5 strongest verified lines, judged
+against their own quote and source.
+
+| Line (verified events) | Right | Wrong / weak |
+|---|---|---|
+| Ukraine–Russia · HOSTILE (40) | 7 | one quote is thin ("shortly after CIA Director… visited Moscow") but the event (Russian strike) is real |
+| Houthis–Saudi Arabia · HOSTILE (30) | 6 | "pipeline struck by a militia in Iraq" credited to the Houthis — wrong actor |
+| Iran–United States · HOSTILE (23) | 7 | — (Feb 28 strikes, Iranian missile strikes on US warships, "economic D-Day" sanctions, accusations) |
+| Trump–Denmark · COOPERATIVE (15) | 7 | all the same Greenland agreement, reported by 7 outlets — right, but one story counted 7× |
+| Modi–Xi · COOPERATIVE (11) | 7 | — (BRICS summit meeting, border "essential basis" statements) |
+
+**33 / 35 ≈ 94 % right** (was ≈ 30 % for cooperative and ≈ 70 % for hostile wire lines).
+Remaining weaknesses: (1) one story syndicated to many outlets is counted once per article on the
+verified ledger too — fix: dedup verified events per (pair, action, day) with an outlet list, as
+the wire already does; (2) occasional wrong actor when an article discusses several militias;
+(3) items whose Wikidata labels exist only in non-Western languages show as bare Q-ids — fetch
+labels in all languages for relation targets.

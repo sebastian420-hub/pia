@@ -138,7 +138,10 @@ class Resolver:
                                   sitelinks, wikidata_synced_at, metadata)
             VALUES (%s, %s, %s, %s, 'RESOLVED', 'wikidata', %s, %s::geometry, %s, NOW(), %s::jsonb)
             ON CONFLICT (qid) WHERE qid IS NOT NULL DO UPDATE SET
-                kind = EXCLUDED.kind, name = EXCLUDED.name, description = EXCLUDED.description,
+                kind = EXCLUDED.kind,
+                -- never replace a real name with a bare Q-id (Wikidata labels can be empty for a moment)
+                name = CASE WHEN EXCLUDED.name = EXCLUDED.qid AND entities.name <> entities.qid THEN entities.name ELSE EXCLUDED.name END,
+                description = EXCLUDED.description,
                 country_qid = EXCLUDED.country_qid, primary_geo = COALESCE(EXCLUDED.primary_geo, entities.primary_geo),
                 sitelinks = EXCLUDED.sitelinks, wikidata_synced_at = NOW(), resolution = 'RESOLVED',
                 metadata = COALESCE(entities.metadata, '{}'::jsonb) || EXCLUDED.metadata, updated_at = NOW()
