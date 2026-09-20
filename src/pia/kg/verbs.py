@@ -302,6 +302,14 @@ class VerbCatalogue:
         logger.info(f"new verb [{family}] '{phrase}'")
         return vid, phrase, True
 
+    def alias(self, phrase: str, verb_id: str):
+        """Record a phrasing as another name for a verb (no new verb)."""
+        phrase = _clean(phrase)
+        if not phrase or phrase in self._by_phrase or phrase in self._alias:
+            return
+        self.db.execute_query("INSERT INTO verb_aliases (alias, verb_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (phrase, verb_id))
+        self._alias[phrase] = verb_id
+
     def _touch(self, verb_id: str, quote: str):
         self.db.execute_query("""
             UPDATE verbs SET seen_count = seen_count + 1, updated_at = NOW(),

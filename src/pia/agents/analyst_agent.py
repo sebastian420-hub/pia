@@ -228,8 +228,8 @@ class AnalystAgent(BaseAgent):
             # the catalogue: the model's pick when it named one, else its own words
             chosen = verb_choice if verb_choice and verb_choice.upper() != "NEW" else predicate
             verb_id, verb, is_new = self.verbs.canonical(chosen or predicate, family, stance, quote=quote)
-            if is_new and predicate and predicate.lower() != verb:
-                self.verbs.canonical(predicate, family, stance)      # the article's phrasing becomes an alias/verb too
+            if predicate and predicate.lower() != verb:
+                self.verbs.alias(predicate, verb_id)                 # the article's phrasing points at the same verb
             kind = kind_for_stance(stance, family)
             when, precision = self._event_time(ev.get("date"), ev.get("precision"), published)
             geo = self._entity_geo(location) if location else None
