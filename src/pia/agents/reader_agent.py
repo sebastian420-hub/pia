@@ -15,6 +15,7 @@ from loguru import logger
 
 from pia.core.base_agent import BaseAgent
 from pia.core.database import DatabaseManager
+from pia.agents.gdelt_agent import page_title
 from pia.ingest.article import fetch_body
 
 
@@ -72,7 +73,7 @@ class ReaderAgent(BaseAgent):
             body, status = fetch_body(r["source_url"])
             now = datetime.now(timezone.utc)
             if body:
-                title = _title_from(body)
+                title = page_title(r["source_url"], timeout=6) or _title_from(body)
                 self.db.execute_query("""
                     UPDATE intelligence_records
                     SET content_raw = %s, body_status = 'OK', body_fetched_at = %s, source_agent = %s,
