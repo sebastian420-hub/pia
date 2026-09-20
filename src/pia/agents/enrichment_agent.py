@@ -19,6 +19,7 @@ from pia.kg import relations, wikidata
 from pia.kg.resolver import Resolver
 from pia.kg.verbs import VerbCatalogue
 from pia.kg.verifier import Verifier
+from pia.kg.briefs import BriefWriter
 
 
 class EnrichmentAgent(BaseAgent):
@@ -31,11 +32,13 @@ class EnrichmentAgent(BaseAgent):
         self.resolver = Resolver(self.db)
         self._last_rebuild = 0.0
         self.verifier = None
+        self.briefs = None
         self.verbs = None
         if os.getenv("OPENROUTER_API_KEY"):
             from pia.core.nlp import NLPManager
             nlp = NLPManager()
             self.verifier = Verifier(self.db, nlp.client)
+            self.briefs = BriefWriter(self.db, nlp.client)
             self.verbs = VerbCatalogue(self.db, embed=nlp.generate_embedding)
         logger.info(f"{self.name} ready (verifier: {'on' if self.verifier else 'off'})")
 
@@ -48,13 +51,17 @@ class EnrichmentAgent(BaseAgent):
         if room > 0:
             self.verifier.run(min(self.VERIFIER_BATCH, room))
 
+    def write_briefs(self):
+        if self.briefs:
+            self.briefs.run(int(os.getenv("BRIEF_BATCH", "20")))
+
     def embed_verbs(self):
         if self.verbs:
             self.verbs.embed_missing(limit=50)
 
     def poll(self):
         # each step independently: a Wikidata hiccup must not stop the relations rebuild
-        for step in (self.fill_pending_relations, self.refresh_stale, self.verify_pending, self.embed_verbs):
+        for step in (self.fill_pending_relations, self.refresh_stale, self.verify_pending, self.write_briefs, self.embed_verbs):
             try:
                 step()
             except Exception as e:
