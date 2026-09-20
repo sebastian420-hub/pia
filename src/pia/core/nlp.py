@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import random
 from typing import List, Dict, Optional
 from openai import OpenAI
@@ -32,10 +33,17 @@ def parse_llm_json(content: str) -> Dict:
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1 or end < start:
         raise ExtractionError(f"No JSON object in LLM output: {text[:120]!r}")
+    body = text[start:end + 1]
     try:
-        data = json.loads(text[start:end + 1])
-    except json.JSONDecodeError as e:
-        raise ExtractionError(f"Invalid/truncated JSON from LLM: {e}") from e
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        # models write "+2" for a positive stance and a bare "-" for an unknown one; neither is JSON
+        repaired = re.sub(r'(:\s*)\+(\d)', r'\1\2', body)
+        repaired = re.sub(r'(:\s*)-(\s*[,}])', r'\g<1>null\2', repaired)
+        try:
+            data = json.loads(repaired)
+        except json.JSONDecodeError as e:
+            raise ExtractionError(f"Invalid/truncated JSON from LLM: {e}") from e
     if not isinstance(data, dict):
         raise ExtractionError("LLM output is not a JSON object")
     return data

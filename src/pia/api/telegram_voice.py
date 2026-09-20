@@ -129,9 +129,10 @@ async def set_mission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     category = context.args[0].upper()
     keywords = context.args[1].split(",")
     
+    # a mission created from Telegram: the keywords become its description; the owner completes it in the UI
     db.execute_query(
-        "INSERT INTO mission_focus (category, keywords, is_active) VALUES (%s, %s, TRUE)",
-        (category, keywords)
+        "INSERT INTO missions (name, description, is_active) VALUES (%s, %s, FALSE)",
+        (category, ", ".join(keywords))
     )
     
     await update.message.reply_text(f"🎯 Mission Activated: {category}\nFocusing on: {', '.join(keywords)}")
@@ -140,7 +141,7 @@ async def list_missions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ALLOWED_IDS: return
     
-    active = db.execute_query("SELECT category, keywords FROM mission_focus WHERE is_active = TRUE", fetch=True)
+    active = db.execute_query("SELECT name AS category, string_to_array(COALESCE(description, ''), ', ') AS keywords FROM missions WHERE is_active = TRUE", fetch=True)
     
     if not active:
         await update.message.reply_text("No active missions. The Agency is in general surveillance mode.")

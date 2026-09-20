@@ -3,7 +3,23 @@
 **Status:** step 1 BUILT 2026-09-21 — connector contract, ingestor, `external_ids`, FtM mapper, OpenSanctions
 (sanctions dataset: 73,017 entities, 169,272 facts, 13,186 identifiers, 148,958 registry relations; 416 Wikidata
 backbone entities gained listings — e.g. the IRGC card: 21 lists, 12 ownership facts, 'sanctioned by United Kingdom
-since 2020-12-31'). Nightly agent `connector_agent` in compose. Steps 2–6 pending. PLAN written 2026-09-20. Follows the direction agreed today (`../PIA_CONCEPT_AND_STATUS_2026-09-20.md` §5):
+since 2020-12-31'). Nightly agent `connector_agent` in compose.
+**Steps 2 + 3 BUILT 2026-09-20 (evening)** — migration 010 (`missions`, `mission_relevance`, `mission_memory`; `mission_focus`
+dropped, General active) + 011 (alerts reach live listeners); `kg/missions.py` (relevance 1.0/0.8/0.6/0.4/0.1 for reports,
+entities, events of the last 30 days, ~0.3 s per mission; alerts as HIGH/CRITICAL reports from `mission_alerts`, one per
+actor›target·verb·day, remembered in `mission_memory`); enrichment step every 15 min or on edit; news agent reads mission
+feeds first and tags reports naming a watchlist entity (word-start match); analyst is told the watchlist; API
+`/missions` (list/get/create/update/activate/delete/alerts/options) and `mission_id` on `/archive`, `/kg/events`,
+`/entities/bbox`, `/kg/web/overview`; UI `MISSION ▾` switcher (activate, show all, new, edit) and editor (countries,
+watchlist, area from the globe view, topics, feeds, databases, alert rules). Checked in the browser with a "Gulf" mission
+(IR/SA/IL/AE/YE, watch Iran + Houthis): feed 1,952 → 421 reports, web 337 → 129 links, 8 alerts ("Iran attack United
+States", "new org in theatre — Houthis"); switching back to General restores everything. Deviations from §2: relevance
+recomputes every 15 min (not hourly) and immediately after an edit; `mission_notes` is `mission_memory`; the Archive page
+stays unfiltered (it is the "everything" view). Found on the way and fixed: "Donald Trump" resolved to *Donald Trump III*
+in US stories because Q22686 had no country yet and a country match outranked a 300× prominence gap — an unknown country
+is no longer a penalty, only a contradicting one (`resolver._lookup_local`), 69 mentions moved; the verifier lost ~40 % of
+its answers to `"stance": +2` (not JSON) — `parse_llm_json` repairs `+N` and a bare `-`. Steps 4–6 pending.
+PLAN written 2026-09-20. Follows the direction agreed today (`../PIA_CONCEPT_AND_STATUS_2026-09-20.md` §5):
 be ready for any database, then focus the picture with missions.
 **Follows from:** `living_verbs_plan.md` (BUILT), `true_lines_plan.md` (BUILT), `PIA_STATE_AND_VISION.md` §5.1
 (missions as first described on 09-15).

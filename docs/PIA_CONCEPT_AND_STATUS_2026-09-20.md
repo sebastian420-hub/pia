@@ -78,7 +78,7 @@ Running cost ≈ $1/day (extraction + reader + verifier + briefs), one Docker ho
 
 **Known weak spots**
 - Input breadth: four feeds and what GDELT points at. The picture is "the news", not "your question".
-- No mission: Ed Sheeran and Iran carry equal weight.
+- ~~No mission: Ed Sheeran and Iran carry equal weight.~~ Built 09-20 evening: missions (see plan, steps 2–3).
 - Review queue for names grows; the same self-maintaining treatment the verbs got is due.
 - Items whose Wikidata labels exist only in non-Western languages show as bare Q-ids (fetch all-language labels).
 - One shared token; no users, roles, audit. Fine for one person; a hard stop before private data.
@@ -109,9 +109,9 @@ Running cost ≈ $1/day (extraction + reader + verifier + briefs), one Docker ho
 1. **Connectors and external IDs** — one interface every source implements (entity / event /
    document + provenance), an `external_ids` table (their ID ↔ our entity), FtM as the wire format
    for structured data; **OpenSanctions as the first connector** (sanctions, PEPs, ownership).
-2. **Missions** — a mission is a collection plan: area, languages, sources, watchlist, alert rules,
-   default view. Broad collection continues; the mission scores relevance, and the globe, feed,
-   alerts and briefs follow the active mission. Switch missions, the picture changes.
+2. **Missions** — BUILT. A mission is a collection plan: countries, area, feeds, watchlist, topics, alert
+   rules. Broad collection continues; the mission scores relevance (every 15 min), and the globe, feed,
+   alerts and web follow the active mission (`MISSION ▾` in the status bar; "show all" lifts it).
 3. **Human reports in a fixed format** — a SPOTREP-style form/document so field input is read
    deterministically; reporters are sources with their own trust.
 4. **Self-maintaining names** — the resolver's review queue gets the verbs' treatment: automatic

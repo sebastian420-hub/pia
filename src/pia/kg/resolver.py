@@ -190,8 +190,10 @@ class Resolver:
             # GeoNames cities carry no sitelinks: a big city must still outrank a small ship or
             # company that happens to share its name ("Copenhagen").
             prominence = (r["sitelinks"] or 0) + (200 if (r["population"] or 0) >= 100_000 else 0)
-            return (1 if (actor_role and r["kind"] == "COUNTRY") else 0,
-                    (r["country_qid"] == ctx_country) if ctx_country else 0, prominence, r["population"] or 0)
+            # A candidate whose known country contradicts the story loses; an unknown country is no
+            # evidence either way ("Donald Trump" with no P27 yet must not lose to "Donald Trump III").
+            country_fit = -1 if (ctx_country and r["country_qid"] and r["country_qid"] != ctx_country) else 0
+            return (1 if (actor_role and r["kind"] == "COUNTRY") else 0, country_fit, prominence, r["population"] or 0)
         rows.sort(key=rank, reverse=True)
         return dict(rows[0])
 

@@ -6,6 +6,7 @@ Knowledge-web maintenance agent (runs every 5 minutes):
   4. rebuilds relations (hourly)
   5. verifies article-read events that could draw a line (independent model call, budgeted)
   6. keeps the verb catalogue's embeddings filled
+  7. scores mission relevance (every 15 min) and raises mission alerts
 """
 import json
 import os
@@ -15,7 +16,7 @@ from loguru import logger
 
 from pia.core.base_agent import BaseAgent
 from pia.core.database import DatabaseManager
-from pia.kg import relations, wikidata
+from pia.kg import missions, relations, wikidata
 from pia.kg.resolver import Resolver
 from pia.kg.verbs import VerbCatalogue
 from pia.kg.verifier import Verifier
@@ -26,11 +27,13 @@ class EnrichmentAgent(BaseAgent):
     RELATIONS_EVERY_SEC = int(os.getenv("RELATIONS_REBUILD_SEC", "3600"))
     VERIFIER_DAILY_BUDGET = int(os.getenv("VERIFIER_DAILY_BUDGET", "800"))
     VERIFIER_BATCH = int(os.getenv("VERIFIER_BATCH", "40"))
+    MISSIONS_EVERY_SEC = int(os.getenv("MISSIONS_EVERY_SEC", "900"))
 
     def setup(self):
         self.db = DatabaseManager()
         self.resolver = Resolver(self.db)
         self._last_rebuild = 0.0
+        self._last_missions = 0.0
         self.verifier = None
         self.briefs = None
         self.verbs = None
@@ -59,9 +62,23 @@ class EnrichmentAgent(BaseAgent):
         if self.verbs:
             self.verbs.embed_missing(limit=50)
 
+    def score_missions(self):
+        """Relevance + alerts for every mission that narrows the picture; a request can force it via missions.dirty_at."""
+        dirty = self.db.execute_query(
+            "SELECT COUNT(*) AS n FROM missions WHERE updated_at > to_timestamp(%s)", (self._last_missions,), fetch=True)[0]["n"]
+        if time.time() - self._last_missions < self.MISSIONS_EVERY_SEC and not dirty:
+            return
+        self._last_missions = time.time()
+        for m in missions.active_missions(self.db):
+            n = missions.compute_relevance(self.db, m)
+            fired = missions.raise_alerts(self.db, m)
+            if not missions.is_general(m):
+                logger.info(f"mission {m['name']}: relevance {n}, alerts {fired}")
+
     def poll(self):
         # each step independently: a Wikidata hiccup must not stop the relations rebuild
-        for step in (self.fill_pending_relations, self.refresh_stale, self.verify_pending, self.write_briefs, self.embed_verbs):
+        for step in (self.fill_pending_relations, self.refresh_stale, self.verify_pending, self.write_briefs, self.embed_verbs,
+                     self.score_missions):
             try:
                 step()
             except Exception as e:

@@ -1,15 +1,43 @@
 -- ════════════════════════════════════════════════════════════════
--- MISSION FOCUS (what the agency is watching)
+-- MISSIONS (collect broadly, look narrowly) — see migrations/010_missions.sql for the columns' meaning
 -- ════════════════════════════════════════════════════════════════
-CREATE TABLE mission_focus (
-    focus_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    category          TEXT NOT NULL,
-    keywords          TEXT[],
-    target_entities   TEXT[],
-    is_active         BOOLEAN DEFAULT TRUE,
-    created_at        TIMESTAMPTZ DEFAULT NOW(),
-    client_id         UUID DEFAULT '00000000-0000-0000-0000-000000000000'
+CREATE TABLE missions (
+    mission_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name         TEXT NOT NULL UNIQUE,
+    description  TEXT,
+    is_active    BOOLEAN NOT NULL DEFAULT FALSE,
+    area         GEOMETRY(MultiPolygon, 4326),
+    countries    TEXT[] NOT NULL DEFAULT '{}',
+    languages    TEXT[] NOT NULL DEFAULT '{en}',
+    feeds        TEXT[] NOT NULL DEFAULT '{}',
+    sources      TEXT[] NOT NULL DEFAULT '{}',
+    watchlist    UUID[] NOT NULL DEFAULT '{}',
+    topics       TEXT[] NOT NULL DEFAULT '{}',
+    alert_rules  JSONB NOT NULL DEFAULT '{"watchlist_hostile": true, "watchlist_pair": true, "new_entity_in_area": 3}'::jsonb,
+    default_view JSONB NOT NULL DEFAULT '{}'::jsonb,
+    model        TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE UNIQUE INDEX missions_one_active ON missions ((is_active)) WHERE is_active;
+CREATE TABLE mission_relevance (
+    mission_id  UUID NOT NULL REFERENCES missions(mission_id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL CHECK (kind IN ('report','entity','event')),
+    ref_id      UUID NOT NULL,
+    score       REAL NOT NULL,
+    reasons     TEXT[] NOT NULL DEFAULT '{}',
+    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (mission_id, kind, ref_id)
+);
+CREATE INDEX idx_mission_relevance_score ON mission_relevance(mission_id, kind, score DESC);
+CREATE TABLE mission_memory (
+    mission_id  UUID NOT NULL REFERENCES missions(mission_id) ON DELETE CASCADE,
+    key         TEXT NOT NULL,
+    note        TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (mission_id, key)
+);
+INSERT INTO missions (name, description, is_active) VALUES ('General', 'Everything, no focus', TRUE);
 
 -- ════════════════════════════════════════════════════════════════
 -- SOURCES: one row per outlet / feed / dataset. Trust is per source.

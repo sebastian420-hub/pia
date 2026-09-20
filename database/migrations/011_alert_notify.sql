@@ -1,3 +1,4 @@
+-- 011: mission alerts notify live listeners without an analyst job; payload carries mission_id
 -- ════════════════════════════════════════════════════════════════
 -- THE HEARTBEAT: every new report queues one analysis job and notifies live listeners.
 -- News agents insert the report only after the article body has been fetched, so the

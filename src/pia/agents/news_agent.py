@@ -10,6 +10,7 @@ from loguru import logger
 
 from pia.core.base_agent import BaseAgent
 from pia.core.database import DatabaseManager
+from pia.kg.missions import mission_feeds, tag_report, watch_names
 from pia.core.heuristics import classify_domain, classify_priority
 from pia.ingest.article import fetch_body, outlet_from_url
 
@@ -35,7 +36,9 @@ class NewsAgent(BaseAgent):
     def poll(self):
         headers = {"User-Agent": "PIA-news-agent/1.0 (+https://github.com/sebastian420-hub/pia)"}
         budget = self.MAX_NEW_PER_POLL
-        for url in self.RSS_FEEDS:
+        self._watch = watch_names(self.db)      # mission_id → watchlist names, refreshed per poll
+        # mission feeds are read first and in full; the broad feeds follow
+        for url in mission_feeds(self.db) + self.RSS_FEEDS:
             try:
                 response = requests.get(url, timeout=15, headers=headers)
                 response.raise_for_status()
@@ -103,14 +106,11 @@ class NewsAgent(BaseAgent):
         body, body_status = fetch_body(link)
         text_for_rules = (normalized + " " + (body or "")[:2000]).lower()
 
-        # mission focus
+        # a report naming a mission's watchlist entity is tagged with that mission and read with priority
         assigned_mission, assigned_client, mission_match = None, '00000000-0000-0000-0000-000000000000', False
-        for m in self.db.execute_query(
-                "SELECT focus_id, keywords, target_entities, client_id FROM mission_focus WHERE is_active = TRUE", fetch=True) or []:
-            targets = (m['keywords'] or []) + (m['target_entities'] or [])
-            if any(t.lower() in text_for_rules for t in targets):
-                assigned_mission, assigned_client, mission_match = m['focus_id'], m['client_id'], True
-                break
+        hit = tag_report(getattr(self, "_watch", {}), text_for_rules)
+        if hit:
+            assigned_mission, mission_match = hit, True
 
         domain = classify_domain(text_for_rules)
         priority = classify_priority(text_for_rules, mission_match)

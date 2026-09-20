@@ -95,10 +95,10 @@ class AnalystAgent(BaseAgent):
             SELECT u.uid, u.geo, u.domain, u.priority, u.content_headline, u.content_summary, u.content_raw,
                    u.published_at, u.created_at, u.source_id, u.source_type, u.client_id, u.mission_id,
                    COALESCE(s.trust, 0.5) AS source_trust, s.country_qid AS source_country,
-                   m.keywords AS mission_keywords
+                   (SELECT ARRAY_AGG(e.name) FROM entities e WHERE e.entity_id = ANY(m.watchlist)) AS mission_keywords
             FROM intelligence_records u
             LEFT JOIN sources s ON s.source_id = u.source_id
-            LEFT JOIN mission_focus m ON m.focus_id = u.mission_id
+            LEFT JOIN missions m ON m.mission_id = u.mission_id
             WHERE u.uid = %s
         """, (uid,), fetch=True)
         if not rows:
