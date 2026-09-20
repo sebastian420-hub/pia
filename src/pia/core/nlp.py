@@ -87,15 +87,27 @@ You extract structured facts from one news article for a knowledge graph. Output
     {"surface": "exact string as written", "kind": "PERSON|ORG|COUNTRY|PLACE|VESSEL|AIRCRAFT|EVENT", "role": "ACTOR|TARGET|LOCATION|MENTIONED"}
   ],
   "events": [
-    {"actor": "surface from mentions", "action": "ONE OF THE ACTIONS BELOW", "target": "surface from mentions or null",
+    {"actor": "surface from mentions", "target": "surface from mentions or null",
+     "predicate": "what the actor did to the target, in ≤ 8 English words, base form: 'call for a boycott of'",
+     "verb": "a verb from the CATALOGUE below that means the same, or NEW if none does",
+     "family": "the family of that verb, from the CATALOGUE",
+     "stance": -3..3, "modality": "asserted|intended|claimed|hypothetical|denied", "polarity": true|false,
      "location": "surface from mentions or null", "date": "YYYY-MM-DD or null", "precision": "day|month",
      "topic": "ONE OF THE TOPICS BELOW", "quote": "the exact sentence from the article that states this",
      "confidence": 0.0-1.0}
   ]
 }
 
-ACTIONS: STATEMENT, APPEAL, COOPERATE, MEET, AGREE, AID, VISIT, ACCUSE, REJECT, THREATEN, PROTEST, SANCTION,
-COERCE, ARREST, ATTACK, APPOINT, RESIGN, ELECT, ACQUIRE, INVEST, DEPLOY, DISASTER, OTHER
+CATALOGUE (family: verbs). Pick the verb that means the same as your predicate; write NEW only when nothing fits.
+{catalogue}
+
+STANCE = the effect of the act on the TARGET, not the actor's mood:
+  -3 attack / kill / invade   -2 sanction, boycott, arrest, expel, threaten force   -1 accuse, condemn, reject, threaten
+   0 neutral (statement, meeting with no outcome, role change)   +1 praise, support, meet, visit
+  +2 agreement, aid, recognition   +3 alliance, rescue, truce
+MODALITY: asserted = it happened; intended = announced / planned / threatened to do; claimed = someone says it
+  happened (a third party, an unverified report); hypothetical = if / could / would; denied = the actor denies it.
+POLARITY: true = the act happened / is stated; false = negated ("did not sanction", "refused to meet").
 
 TOPICS (what the action is ABOUT, not the action itself): nuclear, sanctions, trade, territory, military,
 security, diplomacy, detention, migration, energy, technology, cyber, elections, human_rights, humanitarian,
@@ -108,17 +120,33 @@ Rules:
    surface as in the text and kind COUNTRY.
 3. An event needs an actor that DID something to a target. Reporting, quoting or describing is not an event.
    A journalist or outlet reporting is never an actor.
-4. Prefer a directed action with a target over STATEMENT: "X accused Y" → ACCUSE with target Y;
-   "X warned Y" → THREATEN; "X summoned Y's ambassador" → COERCE with target Y; "X sanctioned Y" → SANCTION.
-   Use STATEMENT only when the announcement itself is the news (a policy, a decision) and there is no target.
+4. Prefer the most specific predicate. "X said it would…" is modality intended; "X denied…" is denied;
+   "Y was attacked by X" → actor X, target Y (direction follows who did it, not word order).
 5. When the target is a country's ship, aircraft, forces, embassy or government, the target is the COUNTRY.
 6. Entertainment, sport and awards are not events for this graph: skip them (0 events).
 7. Use the article's own words in "quote"; do not paraphrase. If the text does not state it, do not extract it.
 8. Prefer fewer, certain events over many doubtful ones. 0 events is a valid answer.
 9. Dates: use the publication date when the text says "today"/"yesterday" relative to it.
-10. Topic is the subject: "US granted visas to Iranian officials for the UN" → action OTHER, topic migration;
-    "talks on the nuclear programme" → topic nuclear; "strikes on a base" → topic military; tariffs → trade.
+10. Topic is the subject: "US granted visas to Iranian officials for the UN" → topic migration;
+    "talks on the nuclear programme" → nuclear; "strikes on a base" → military; tariffs → trade.
+
+Edge cases, worked (invented examples — never copy their words into your output):
+- "The dockers' union extended its call for boycotting Acme Shipping's routes" → actor the union, target Acme Shipping,
+  predicate "call for a boycott of", family HOSTILE·sanction, stance -2, asserted, polarity true.
+- "The minister told the airline it could not fly the route if it kept the livery" → predicate "threaten to ban",
+  verb "threaten", family HOSTILE·threat, stance -2, modality intended.
+- "Ruritania denied shelling the clinic" → predicate "shell", verb "strike", family HOSTILE·force, stance -3,
+  modality denied, polarity false (keep it: the denial is on record).
+- "Officials in Freedonia say Ruritania hit the port" → actor Ruritania, target Freedonia, verb "strike", modality claimed.
+- "The pipeline was struck by a local militia" → actor the militia (not another group named elsewhere in the article).
+- "The fund divested from three banks" → predicate "divest from", verb NEW, family HOSTILE·sanction, stance -2.
+11. The QUOTE must itself state the act between this actor and this target. If the sentence you can quote does not
+    say it, there is no event. Never reuse an example above as a predicate unless the article says exactly that.
 """
+        self.catalogue_block = ""   # set by set_catalogue(); the prompt lists the live verbs by family
+
+    def set_catalogue(self, block: str):
+        self.catalogue_block = block or ""
 
     def _get_next_model(self) -> str:
         """Returns a random model from the rotation pool to distribute load."""
@@ -127,7 +155,7 @@ Rules:
     def extract_events(self, text: str, headline: str = "", published: str = "", outlet: str = "",
                        mission_keywords: list = None) -> Dict:
         """Full-article extraction: summary, mentions, events (see system prompt). Raises ExtractionError."""
-        prompt = self.system_prompt
+        prompt = self.system_prompt.replace("{catalogue}", self.catalogue_block or "(catalogue unavailable: write predicates and families anyway)")
         if mission_keywords:
             prompt += f"\nThe agency is currently watching: {', '.join(mission_keywords)}. Do not invent mentions for them."
         user = f"OUTLET: {outlet or 'unknown'}\nPUBLISHED: {published or 'unknown'}\nHEADLINE: {headline}\n\nARTICLE:\n{text[:12000]}"
@@ -145,7 +173,7 @@ Rules:
         data.setdefault("mentions", [])
         data.setdefault("events", [])
         data["mentions"] = [m for m in data["mentions"] if isinstance(m, dict) and m.get("surface")]
-        data["events"] = [e for e in data["events"] if isinstance(e, dict) and e.get("actor") and e.get("action")]
+        data["events"] = [e for e in data["events"] if isinstance(e, dict) and e.get("actor") and (e.get("predicate") or e.get("action") or e.get("verb"))]
         logger.success(f"NLP: {len(data['mentions'])} mentions, {len(data['events'])} events ({selected_model})")
         return data
 

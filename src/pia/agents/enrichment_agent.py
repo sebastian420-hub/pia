@@ -4,6 +4,8 @@ Knowledge-web maintenance agent (runs every 5 minutes):
   2. refreshes Wikidata items older than 30 days
   3. retries NEEDS_REVIEW entities once (Wikidata may have caught up) after 6 hours
   4. rebuilds relations (hourly)
+  5. verifies article-read events that could draw a line (independent model call, budgeted)
+  6. keeps the verb catalogue's embeddings filled
 """
 import json
 import os
@@ -15,20 +17,44 @@ from pia.core.base_agent import BaseAgent
 from pia.core.database import DatabaseManager
 from pia.kg import relations, wikidata
 from pia.kg.resolver import Resolver
+from pia.kg.verbs import VerbCatalogue
+from pia.kg.verifier import Verifier
 
 
 class EnrichmentAgent(BaseAgent):
     RELATIONS_EVERY_SEC = int(os.getenv("RELATIONS_REBUILD_SEC", "3600"))
+    VERIFIER_DAILY_BUDGET = int(os.getenv("VERIFIER_DAILY_BUDGET", "800"))
+    VERIFIER_BATCH = int(os.getenv("VERIFIER_BATCH", "40"))
 
     def setup(self):
         self.db = DatabaseManager()
         self.resolver = Resolver(self.db)
         self._last_rebuild = 0.0
-        logger.info(f"{self.name} ready")
+        self.verifier = None
+        self.verbs = None
+        if os.getenv("OPENROUTER_API_KEY"):
+            from pia.core.nlp import NLPManager
+            nlp = NLPManager()
+            self.verifier = Verifier(self.db, nlp.client)
+            self.verbs = VerbCatalogue(self.db, embed=nlp.generate_embedding)
+        logger.info(f"{self.name} ready (verifier: {'on' if self.verifier else 'off'})")
+
+    def verify_pending(self):
+        if not self.verifier:
+            return
+        done_today = self.db.execute_query(
+            "SELECT COUNT(*) AS n FROM events WHERE verified_at > date_trunc('day', NOW())", fetch=True)[0]["n"]
+        room = self.VERIFIER_DAILY_BUDGET - int(done_today)
+        if room > 0:
+            self.verifier.run(min(self.VERIFIER_BATCH, room))
+
+    def embed_verbs(self):
+        if self.verbs:
+            self.verbs.embed_missing(limit=50)
 
     def poll(self):
         # each step independently: a Wikidata hiccup must not stop the relations rebuild
-        for step in (self.fill_pending_relations, self.refresh_stale):
+        for step in (self.fill_pending_relations, self.refresh_stale, self.verify_pending, self.embed_verbs):
             try:
                 step()
             except Exception as e:

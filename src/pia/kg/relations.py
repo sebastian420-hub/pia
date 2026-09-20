@@ -29,7 +29,10 @@ def rebuild(db, days: int = 365):
                     SELECT LEAST(actor_id, target_id) AS a_id, GREATEST(actor_id, target_id) AS b_id,
                            COALESCE(kind, {ACTION_KIND_SQL}) AS kind, COALESCE(topic, 'other') AS topic,
                            event_time, action, confidence, source_id, outlets,
-                           (origin <> 'gdelt') AS verified,
+                           -- an article-read event counts as verified once the verifier agreed; events
+                           -- from before prompt v3 (no stance) keep counting until they are judged
+                           (origin <> 'gdelt' AND COALESCE(modality, 'asserted') = 'asserted' AND COALESCE(polarity, TRUE)
+                            AND (verifier_verdict = 'yes' OR (verifier_verdict IS NULL AND stance IS NULL))) AS verified,
                            (origin = 'gdelt' AND COALESCE(weight_class, 'material') = 'material' AND COALESCE(is_root, TRUE)) AS wire_deed,
                            exp(-EXTRACT(EPOCH FROM (NOW() - event_time)) / 86400.0 / 90.0) AS decay
                     FROM events

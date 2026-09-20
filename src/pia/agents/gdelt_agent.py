@@ -38,6 +38,7 @@ from pia.kg.ontology import (ACTIONS, CONTINENT_QIDS, GDELT_GENERIC_ACTORS, GDEL
                              GDELT_REGION_CODES, GOVERNMENT_SEATS, STATE_ACTOR_TYPES, SYMMETRIC_ACTIONS,
                              cameo_action, weight_class)
 from pia.kg.resolver import Resolver
+from pia.kg.verbs import VerbCatalogue
 
 LASTUPDATE = "http://data.gdeltproject.org/gdeltv2/lastupdate.txt"
 COL = dict(id=0, day=1, a1name=6, a1cc=7, a1kg=8, a1type=12, a2name=16, a2cc=17, a2kg=18, a2type=22,
@@ -96,6 +97,7 @@ class GdeltAgent(BaseAgent):
     def setup(self):
         self.db = DatabaseManager()
         self.resolver = Resolver(self.db)
+        self.verbs = VerbCatalogue(self.db)          # wire events are filed under catalogue verbs too (no embedding needed)
         self.last_file = None
         self.load_countries()
         logger.info(f"{self.name} ready (min mentions {self.MIN_MENTIONS}, |goldstein| ≥ {self.MIN_ABS_GOLDSTEIN}, "
@@ -255,19 +257,24 @@ class GdeltAgent(BaseAgent):
             # one event per story-day: the outlet is NOT part of the key; copies add to `outlets`
             dedup = hashlib.sha1(f"gdelt|{pair[0]}|{pair[1]}|{action}|{when.date()}".encode()).hexdigest()
             confidence = round(min(0.9, 0.4 + 0.1 * min(c['sources'], 5)), 2)
+            vrow = self.verbs.by_cameo(c['code'])
             self.db.execute_query("""
                 INSERT INTO events (event_time, time_precision, action, kind, actor_id, target_id, geo, report_uid, source_id,
-                                    origin, quote, confidence, tone, external_id, topic, code, is_root, weight_class, outlets, dedup_key)
+                                    origin, quote, confidence, tone, external_id, topic, code, is_root, weight_class, outlets,
+                                    predicate, verb_id, family, stance, modality, polarity, dedup_key)
                 VALUES (%s, 'day', %s, %s, %s, %s,
                         CASE WHEN %s THEN ST_SetSRID(ST_MakePoint(%s, %s), 4326) END,
-                        %s, 'gdelt', 'gdelt', NULL, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                        %s, 'gdelt', 'gdelt', NULL, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
+                        %s, %s, %s, %s, 'claimed', TRUE, %s)
                 ON CONFLICT (dedup_key, event_time) DO UPDATE SET
                     outlets = CASE WHEN events.outlets ? %s THEN events.outlets ELSE events.outlets || %s::jsonb END,
                     confidence = LEAST(0.9, GREATEST(events.confidence, EXCLUDED.confidence) + 0.05),
                     is_root = events.is_root OR EXCLUDED.is_root
             """, (when, action, ACTIONS[action][1], a_id, t_id or None, c['event_geo'], c['lon'], c['lat'],
                   report_uids.get(c['url']), confidence, c['goldstein'], c['row'][COL['id']], c['topic'], c['code'],
-                  c['is_root'], weight_class(c['code']), json.dumps([outlet]), dedup,
+                  c['is_root'], weight_class(c['code']), json.dumps([outlet]),
+                  c['code_label'], vrow['verb_id'] if vrow else None, vrow['family'] if vrow else None,
+                  vrow['default_stance'] if vrow else None, dedup,
                   outlet, json.dumps([outlet])))
             for ent in (actor, target):
                 if ent:

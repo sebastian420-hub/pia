@@ -12,6 +12,7 @@ Relations are never written here; kg.relations computes them from events.
 import hashlib
 import os
 import socket
+import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -22,7 +23,16 @@ from pia.core.database import DatabaseManager
 from pia.core.nlp import ExtractionError, NLPManager
 from pia.kg.normalize import normalize
 from pia.kg.ontology import ACTIONS, LLM_ACTIONS, TOPICS
+from pia.kg.verbs import MODALITIES, VerbCatalogue, guard_family, kind_for_stance
 from pia.kg.resolver import Resolver
+
+
+def _legacy_action(family: str, stance) -> str:
+    """The old 23-verb code for grouping and GDELT parity, from the family."""
+    head, sub = family.split("·")
+    return {"force": "ATTACK", "coercion": "COERCE", "sanction": "SANCTION", "accusation": "ACCUSE", "threat": "THREATEN",
+            "agreement": "AGREE", "aid": "AID", "support": "COOPERATE", "meeting": "MEET",
+            "role": "APPOINT", "ownership": "ACQUIRE", "statement": "STATEMENT"}.get(sub, "OTHER")
 
 
 class AnalystAgent(BaseAgent):
@@ -35,12 +45,19 @@ class AnalystAgent(BaseAgent):
         self.db = DatabaseManager()
         self.nlp = NLPManager()
         self.resolver = Resolver(self.db, llm_choose=self.nlp.choose_candidate)
+        self.verbs = VerbCatalogue(self.db, embed=self.nlp.generate_embedding)
+        self.nlp.set_catalogue(self.verbs.prompt_block())
+        self._catalogue_at = time.time()
         self.name = f"analyst_{socket.gethostname()}"
         logger.info(f"{self.name} ready (event extraction + Wikidata resolution)")
 
     # ── queue ─────────────────────────────────────────────────────────────────
 
     def poll(self):
+        if time.time() - self._catalogue_at > 600:      # new verbs from any analyst reach every prompt within 10 min
+            self.verbs.reload()
+            self.nlp.set_catalogue(self.verbs.prompt_block())
+            self._catalogue_at = time.time()
         while self.running:
             if not self.process_one_job():
                 return
@@ -178,9 +195,22 @@ class AnalystAgent(BaseAgent):
         trust = float(report['source_trust'] or 0.5)
         published = report['published_at'] or report['created_at']
         for ev in events:
-            action = str(ev.get("action", "OTHER")).upper()
+            # ── the event's own judgement (prompt v3); old-style "action" answers still accepted ──
+            predicate = str(ev.get("predicate") or ev.get("verb") or ev.get("action") or "").strip()
+            verb_choice = str(ev.get("verb") or "").strip()
+            try:
+                stance = max(-3, min(3, int(round(float(ev.get("stance"))))))
+            except (TypeError, ValueError):
+                stance = None
+            family = guard_family(ev.get("family"), stance)
+            modality = str(ev.get("modality") or "asserted").lower().strip()
+            if modality not in MODALITIES:
+                modality = "asserted"
+            polarity = ev.get("polarity")
+            polarity = True if polarity is None else bool(polarity) and str(polarity).lower() not in ("false", "0", "no")
+            action = str(ev.get("action", "")).upper()
             if action not in LLM_ACTIONS:
-                action = "OTHER"
+                action = _legacy_action(family, stance)
             topic = str(ev.get("topic") or "other").lower().strip()
             if topic not in TOPICS:
                 topic = "other"
@@ -194,17 +224,28 @@ class AnalystAgent(BaseAgent):
             conf = min(1.0, max(0.0, float(ev.get("confidence") or 0.6))) * (0.6 + 0.4 * trust)
             if conf < self.MIN_EVENT_CONFIDENCE:
                 continue
+            quote = str(ev.get("quote") or "")[:1000]
+            # the catalogue: the model's pick when it named one, else its own words
+            chosen = verb_choice if verb_choice and verb_choice.upper() != "NEW" else predicate
+            verb_id, verb, is_new = self.verbs.canonical(chosen or predicate, family, stance, quote=quote)
+            if is_new and predicate and predicate.lower() != verb:
+                self.verbs.canonical(predicate, family, stance)      # the article's phrasing becomes an alias/verb too
+            kind = kind_for_stance(stance, family)
             when, precision = self._event_time(ev.get("date"), ev.get("precision"), published)
             geo = self._entity_geo(location) if location else None
-            dedup = hashlib.sha1(f"{actor['entity_id']}|{target['entity_id'] if target else ''}|{action}|{when.date()}|{report['source_id']}".encode()).hexdigest()
+            dedup = hashlib.sha1(f"{actor['entity_id']}|{target['entity_id'] if target else ''}|{verb}|{when.date()}|{report['source_id']}".encode()).hexdigest()
             self.db.execute_query("""
                 INSERT INTO events (event_time, time_precision, action, kind, actor_id, target_id, location_id, geo,
-                                    report_uid, source_id, origin, quote, confidence, tone, topic, dedup_key)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::geometry, %s, %s, 'llm', %s, %s, %s, %s, %s)
+                                    report_uid, source_id, origin, quote, confidence, tone, topic, weight_class,
+                                    predicate, verb_id, family, stance, modality, polarity, dedup_key)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::geometry, %s, %s, 'llm', %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (dedup_key, event_time) DO NOTHING
-            """, (when, precision, action, ACTIONS[action][1], actor['entity_id'], target['entity_id'] if target else None,
+            """, (when, precision, action, kind, actor['entity_id'], target['entity_id'] if target else None,
                   location['entity_id'] if location else None, geo, report['uid'], report['source_id'],
-                  str(ev.get("quote") or "")[:1000], round(conf, 3), ACTIONS[action][2], topic, dedup))
+                  quote, round(conf, 3), float(stance * 3) if stance is not None else ACTIONS[action][2], topic,
+                  "material" if modality == "asserted" else "verbal",
+                  (predicate or verb)[:80], verb_id, family, stance, modality, polarity, dedup))
 
     def _lookup(self, surface, resolved, role, context) -> Optional[dict]:
         if not surface:

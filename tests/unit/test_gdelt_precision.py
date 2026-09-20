@@ -93,6 +93,10 @@ def agent(monkeypatch):
     a.country_aliases = {"Q30": {"united states", "us", "america"}, "Q794": {"iran"}}
     a.MIN_MENTIONS, a.MIN_MENTIONS_SOLO, a.MIN_ABS_GOLDSTEIN, a.MIN_SOURCES_UNTYPED = 3, 10, 5, 2
     a.FETCH_TITLES = False
+
+    class NoVerbs:                       # the catalogue is exercised in test_verbs.py
+        def by_cameo(self, code): return None
+    a.verbs = NoVerbs()
     return a
 
 
@@ -150,7 +154,7 @@ def test_government_body_collapses_to_country(agent):
 def test_symmetric_actions_dedup_on_the_pair(agent):
     ingest(agent, row("UNITED STATES", "USA", "GOV", "IRAN", "IRN", "GOV", "044"),
            row("IRAN", "IRN", "GOV", "UNITED STATES", "USA", "GOV", "044"))
-    keys = {e[17] for e in agent.db.events}
+    keys = {e[21] for e in agent.db.events}
     assert len(agent.db.events) == 2 and len(keys) == 1
 
 
@@ -190,6 +194,7 @@ def test_weight_class_and_story_day_dedup(agent):
     ingest(agent, row("UNITED STATES", "USA", "GOV", "IRAN", "IRN", "GOV", "163", url="http://a.test/x"),
            row("UNITED STATES", "USA", "GOV", "IRAN", "IRN", "GOV", "163", url="http://b.test/y"))
     e1, e2 = agent.db.events
-    assert e1[17] == e2[17]                      # dedup key ignores the outlet
-    assert e1[18] == "a.test" and e2[18] == "b.test"
+    assert e1[21] == e2[21]                      # dedup key ignores the outlet
+    assert e1[22] == "a.test" and e2[22] == "b.test"
     assert e1[15] == "material"                  # weight_class for 163 (sanctions)
+    assert e1[17] == "impose sanctions, boycott or embargo"   # predicate = the CAMEO label
