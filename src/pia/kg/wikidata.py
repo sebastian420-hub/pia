@@ -98,8 +98,8 @@ def _claim_values(entity: dict, prop: str) -> List:
     return out
 
 
-def get_entities(qids: Iterable[str]) -> Dict[str, dict]:
-    """wbgetentities in batches of 50 → {qid: parsed}"""
+def get_entities(qids: Iterable[str], raw: bool = False) -> Dict[str, dict]:
+    """wbgetentities in batches of 50 → {qid: parsed} (raw=True: the API's own entity dicts, with claims)"""
     qids = [q for q in dict.fromkeys(qids) if q]
     result = {}
     for i in range(0, len(qids), 50):
@@ -110,7 +110,7 @@ def get_entities(qids: Iterable[str]) -> Dict[str, dict]:
         for qid, ent in (r.json().get("entities") or {}).items():
             if "missing" in ent:
                 continue
-            result[qid] = parse_entity(ent)
+            result[qid] = ent if raw else parse_entity(ent)
     return result
 
 

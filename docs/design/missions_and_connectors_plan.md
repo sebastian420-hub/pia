@@ -18,7 +18,18 @@ recomputes every 15 min (not hourly) and immediately after an edit; `mission_not
 stays unfiltered (it is the "everything" view). Found on the way and fixed: "Donald Trump" resolved to *Donald Trump III*
 in US stories because Q22686 had no country yet and a country match outranked a 300× prominence gap — an unknown country
 is no longer a penalty, only a contradicting one (`resolver._lookup_local`), 69 mentions moved; the verifier lost ~40 % of
-its answers to `"stance": +2` (not JSON) — `parse_llm_json` repairs `+N` and a bare `-`. Steps 4–6 pending.
+its answers to `"stance": +2` (not JSON) — `parse_llm_json` repairs `+N` and a bare `-`.
+**Step 4 BUILT** — `connectors/spotrep.py` (markdown + JSON forms, `docs/SPOTREP_FORMAT.md`); the document agent routes
+`reporter:` files to it; reporter = source with trust from basis × confidence; entities carry hard ids; events are
+*recorded* rows (blue badge; count as verified when the source trust ≥ 0.5 — never hearsay); NOTES → HUMINT report on
+the feed, tagged with the mission. Checked end to end with a test report (Iran → Q794, Houthis → their node, line drawn,
+card row "delivered supplies to · recorded"), then removed from the live web.
+**Step 5 BUILT** — `kg/names.py` NameKeeper as an enrichment step: collectives of a known thing ("Chinese Foreign
+Ministry" → China, "Houthi militia" → Houthis, "Dutch riot police" → Netherlands) via demonyms (Wikidata P1549, current
+state preferred, adjective fallback "iraqi" → Iraq), spelling variants of places/orgs (trigram ≥ 0.9), demonyms filed
+as persons rejected, names seen once and quiet for 14 days leave the queue. Dry run on the live queue: 23 merges,
+2 variants, 2 rejects, 0 wrong. Runs 200 names per poll; the queue was 877 and started shrinking (865 after one pass).
+**Step 6 DONE** — `design/access_control.md` (design only).
 PLAN written 2026-09-20. Follows the direction agreed today (`../PIA_CONCEPT_AND_STATUS_2026-09-20.md` §5):
 be ready for any database, then focus the picture with missions.
 **Follows from:** `living_verbs_plan.md` (BUILT), `true_lines_plan.md` (BUILT), `PIA_STATE_AND_VISION.md` §5.1

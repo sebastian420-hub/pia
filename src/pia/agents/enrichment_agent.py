@@ -7,6 +7,7 @@ Knowledge-web maintenance agent (runs every 5 minutes):
   5. verifies article-read events that could draw a line (independent model call, budgeted)
   6. keeps the verb catalogue's embeddings filled
   7. scores mission relevance (every 15 min) and raises mission alerts
+  8. keeps names: the review queue's clear cases decide themselves (collectives, spelling variants, demonyms, quiet names)
 """
 import json
 import os
@@ -16,7 +17,7 @@ from loguru import logger
 
 from pia.core.base_agent import BaseAgent
 from pia.core.database import DatabaseManager
-from pia.kg import missions, relations, wikidata
+from pia.kg import missions, names, relations, wikidata
 from pia.kg.resolver import Resolver
 from pia.kg.verbs import VerbCatalogue
 from pia.kg.verifier import Verifier
@@ -34,6 +35,7 @@ class EnrichmentAgent(BaseAgent):
         self.resolver = Resolver(self.db)
         self._last_rebuild = 0.0
         self._last_missions = 0.0
+        self.names = names.NameKeeper(self.db)
         self.verifier = None
         self.briefs = None
         self.verbs = None
@@ -75,10 +77,13 @@ class EnrichmentAgent(BaseAgent):
             if not missions.is_general(m):
                 logger.info(f"mission {m['name']}: relevance {n}, alerts {fired}")
 
+    def keep_names(self):
+        self.names.run(limit=200)
+
     def poll(self):
         # each step independently: a Wikidata hiccup must not stop the relations rebuild
         for step in (self.fill_pending_relations, self.refresh_stale, self.verify_pending, self.write_briefs, self.embed_verbs,
-                     self.score_missions):
+                     self.score_missions, self.keep_names):
             try:
                 step()
             except Exception as e:
@@ -139,16 +144,7 @@ class EnrichmentAgent(BaseAgent):
 
     def merge(self, loser_id, keeper_id):
         """Re-points mentions/events from a local entity to a resolved one, then removes it."""
-        self.db.execute_query("UPDATE mentions SET entity_id = %s WHERE entity_id = %s", (keeper_id, loser_id))
-        for col in ("actor_id", "target_id", "location_id"):
-            self.db.execute_query(f"UPDATE events SET {col} = %s WHERE {col} = %s", (keeper_id, loser_id))
-        self.db.execute_query("""
-            UPDATE entities k SET mention_count = k.mention_count + l.mention_count
-            FROM entities l WHERE k.entity_id = %s AND l.entity_id = %s
-        """, (keeper_id, loser_id))
-        self.db.execute_query("DELETE FROM entities WHERE entity_id = %s", (loser_id,))
-        self.db.execute_query("INSERT INTO ai_feedback (entity_id, feedback_type, human_correction) VALUES (%s, 'MERGED', %s)",
-                              (keeper_id, json.dumps({"from": str(loser_id), "by": "enrichment_agent"})))
+        names.merge(self.db, str(loser_id), str(keeper_id), None, "wikidata retry")
         logger.info(f"merged {loser_id} → {keeper_id}")
 
     def stop(self):

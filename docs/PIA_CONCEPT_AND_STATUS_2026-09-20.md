@@ -79,7 +79,7 @@ Running cost ≈ $1/day (extraction + reader + verifier + briefs), one Docker ho
 **Known weak spots**
 - Input breadth: four feeds and what GDELT points at. The picture is "the news", not "your question".
 - ~~No mission: Ed Sheeran and Iran carry equal weight.~~ Built 09-20 evening: missions (see plan, steps 2–3).
-- Review queue for names grows; the same self-maintaining treatment the verbs got is due.
+- ~~Review queue for names grows.~~ Self-maintaining since 09-20 evening; watch that it stays flat.
 - Items whose Wikidata labels exist only in non-Western languages show as bare Q-ids (fetch all-language labels).
 - One shared token; no users, roles, audit. Fine for one person; a hard stop before private data.
 
@@ -112,12 +112,12 @@ Running cost ≈ $1/day (extraction + reader + verifier + briefs), one Docker ho
 2. **Missions** — BUILT. A mission is a collection plan: countries, area, feeds, watchlist, topics, alert
    rules. Broad collection continues; the mission scores relevance (every 15 min), and the globe, feed,
    alerts and web follow the active mission (`MISSION ▾` in the status bar; "show all" lifts it).
-3. **Human reports in a fixed format** — a SPOTREP-style form/document so field input is read
-   deterministically; reporters are sources with their own trust.
-4. **Self-maintaining names** — the resolver's review queue gets the verbs' treatment: automatic
-   decisions for the clear cases, review optional.
-5. **Access control** — users, roles, per-source visibility, audit, deletion — built the moment a
-   private source is on the table, not before.
+3. **Human reports in a fixed format** — BUILT. SPOTREP (`docs/SPOTREP_FORMAT.md`): upload a `.md`/`.json`;
+   entities and events are read as written, NOTES like an article; reporters are sources with their own trust.
+4. **Self-maintaining names** — BUILT. The review queue decides its clear cases itself (collectives →
+   their country/group, spelling variants, demonyms, quiet names); review stays optional.
+5. **Access control** — DESIGNED (`design/access_control.md`); built the moment a private source is
+   on the table, not before.
 
 Not now: golden-set nightly scoring (phase 2 of the verbs work), situation briefs, wall mode, relay.
 
