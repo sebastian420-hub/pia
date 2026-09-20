@@ -87,7 +87,7 @@ CREATE TABLE events (
     geo            GEOMETRY(Point, 4326),
     report_uid     UUID REFERENCES intelligence_records(uid) ON DELETE SET NULL,
     source_id      TEXT REFERENCES sources(source_id),
-    origin         TEXT NOT NULL CHECK (origin IN ('llm','gdelt','sensor','human')),
+    origin         TEXT NOT NULL CHECK (origin IN ('llm','gdelt','sensor','human','connector')),
     quote          TEXT,
     confidence     FLOAT NOT NULL CHECK (confidence BETWEEN 0.0 AND 1.0),
     tone           FLOAT,                                  -- -10 (hostile) .. +10 (cooperative)
@@ -116,7 +116,7 @@ CREATE TABLE relations (
     a_id         UUID NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
     b_id         UUID NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
     kind         TEXT NOT NULL CHECK (kind IN ('HOSTILE','COOPERATIVE','ROLE','OWNERSHIP','MEMBERSHIP','LOCATED','MENTIONED_WITH')),
-    source       TEXT NOT NULL CHECK (source IN ('events','wikidata','cooccurrence')),
+    source       TEXT NOT NULL CHECK (source IN ('events','wikidata','cooccurrence','connector')),
     property     TEXT,                                     -- Wikidata P-id when source = 'wikidata'
     label        TEXT,                                     -- human label ('head of state', 'attacked')
     directed     BOOLEAN NOT NULL DEFAULT FALSE,           -- a → b meaningful (ROLE: a holds role in b)
