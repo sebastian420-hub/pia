@@ -1,6 +1,7 @@
 # PIA — Concept, System Design, How It Works, and How to Step It Up
 
 **Status:** WRITTEN 2026-09-19 from the live system (all numbers measured at ~05:30Z today).
+**Superseded for the current picture by:** `PIA_CONCEPT_AND_STATUS_2026-09-20.md`.
 **Follows from:** `PIA_STATE_AND_VISION.md` (2026-09-15) — that document is the history and the
 decision log; this one is the *current* picture. Detail plans live in `design/`.
 **Repos:** `pia` (agents + database), `pia-api` (HTTP/WebSocket), `pia-ui` (browser).
