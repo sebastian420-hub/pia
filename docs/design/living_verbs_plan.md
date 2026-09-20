@@ -1,6 +1,14 @@
 # Living verbs — an event vocabulary that grows on its own, a stance that is judged, lines that are checked
 
-**Status:** PLAN 2026-09-20 (v3 of the stance work; replaces §2 of `entity_brief_and_stance_plan.md`).
+**Status:** BUILT 2026-09-20 — catalogue (65 seed verbs, 12 families, embeddings), prompt v3, analyst
+storing predicate / verb / family / stance / modality / polarity, verifier step (budget 800/day), briefs,
+card (brief · connection words · verdict badge · 30-day strip), evidence and wheel list with the words,
+Verbs tab. Checked on the Ed Sheeran articles: PACBI → Ed Sheeran now *call for a boycott of · stance −2 ·
+verified*; three hallucinated events ("Macklemore called for a boycott of Ed Sheeran", "Ed Sheeran called for
+a boycott of Palestine") were **rejected by the verifier**, so they draw nothing. Step 6 (re-audit after 24 h)
+pending. Lesson recorded: worked examples in the prompt must be invented, never the story under test — the
+model copied "call for a boycott of" into unrelated events until they were changed.
+Was: PLAN (v3 of the stance work; replaces §2 of `entity_brief_and_stance_plan.md`).
 **Decisions with the owner today:** (1) no hard-coded verb list — verbs are an open catalogue under fixed
 families; (2) the catalogue **maintains itself** — review is optional, never a bottleneck; (3) stance and
 "did it happen" are judged per event, separate from the verb; (4) every line-forming event is checked by an
