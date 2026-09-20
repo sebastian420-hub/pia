@@ -1,6 +1,9 @@
 # Missions and connectors — implementation plan
 
-**Status:** PLAN 2026-09-20. Follows the direction agreed today (`../PIA_CONCEPT_AND_STATUS_2026-09-20.md` §5):
+**Status:** step 1 BUILT 2026-09-21 — connector contract, ingestor, `external_ids`, FtM mapper, OpenSanctions
+(sanctions dataset: 73,017 entities, 169,272 facts, 13,186 identifiers, 148,958 registry relations; 416 Wikidata
+backbone entities gained listings — e.g. the IRGC card: 21 lists, 12 ownership facts, 'sanctioned by United Kingdom
+since 2020-12-31'). Nightly agent `connector_agent` in compose. Steps 2–6 pending. PLAN written 2026-09-20. Follows the direction agreed today (`../PIA_CONCEPT_AND_STATUS_2026-09-20.md` §5):
 be ready for any database, then focus the picture with missions.
 **Follows from:** `living_verbs_plan.md` (BUILT), `true_lines_plan.md` (BUILT), `PIA_STATE_AND_VISION.md` §5.1
 (missions as first described on 09-15).
