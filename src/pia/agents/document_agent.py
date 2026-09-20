@@ -15,6 +15,7 @@ class DocumentAgent(BaseAgent):
 
     def setup(self):
         self.db = DatabaseManager()
+        self.ingestor = None          # built on the first SPOTREP
         self.doc_dir = os.getenv("DOC_DIR", "/app/data/documents")
         
         if not os.path.exists(self.doc_dir):
@@ -33,7 +34,7 @@ class DocumentAgent(BaseAgent):
                 
             if filename.lower().endswith('.pdf'):
                 self.process_pdf(filepath, filename)
-            elif filename.lower().endswith('.txt'):
+            elif filename.lower().endswith(('.txt', '.md', '.json')):
                 self.process_txt(filepath, filename)
 
     def process_pdf(self, filepath: str, filename: str):
@@ -57,13 +58,38 @@ class DocumentAgent(BaseAgent):
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 full_text = f.read()
-            
-            outcome = self._inject_chunks(full_text, filename)
+
+            # a SPOTREP (fixed human-report format) is read deterministically; anything else is chunked for the analyst
+            head = full_text.lstrip()[:400].lower()
+            if head.startswith('reporter:') or (head.startswith('{') and '"reporter"' in head):
+                outcome = self._ingest_spotrep(full_text, filename)
+            else:
+                outcome = self._inject_chunks(full_text, filename)
             self._mark_processed(filepath, filename, outcome)
 
         except Exception as e:
             logger.error(f"Failed to process TXT {filename}: {e}")
             self._mark_processed(filepath, filename, "failed")
+
+    def _ingest_spotrep(self, text: str, filename: str) -> str:
+        from pia.connectors.spotrep import SpotrepConnector, SpotrepError, parse
+        try:
+            rep = parse(text)
+        except (SpotrepError, ValueError) as e:
+            logger.error(f"SPOTREP {filename} rejected: {e}")
+            return "failed"
+        mission_id = None
+        if rep.mission:
+            row = self.db.execute_query("SELECT mission_id FROM missions WHERE name = %s OR mission_id::text = %s LIMIT 1",
+                                        (rep.mission, rep.mission), fetch=True)
+            mission_id = str(row[0]["mission_id"]) if row else None
+        if self.ingestor is None:
+            from pia.connectors.base import Ingestor
+            from pia.kg.resolver import Resolver
+            self.ingestor = Ingestor(self.db, Resolver(self.db))
+        stats = self.ingestor.run(SpotrepConnector(rep, f"spotrep:{filename}", mission_id))
+        logger.success(f"SPOTREP {filename} from {rep.reporter}: {stats}")
+        return "processed"
 
     def _inject_chunks(self, full_text: str, filename: str) -> str:
         """

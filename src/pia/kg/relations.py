@@ -27,15 +27,18 @@ def rebuild(db, days: int = 365):
             cur.execute(f"""
                 WITH ev AS (
                     SELECT LEAST(actor_id, target_id) AS a_id, GREATEST(actor_id, target_id) AS b_id,
-                           COALESCE(kind, {ACTION_KIND_SQL}) AS kind, COALESCE(topic, 'other') AS topic,
-                           event_time, action, confidence, source_id, outlets,
+                           COALESCE(events.kind, {ACTION_KIND_SQL}) AS kind, COALESCE(topic, 'other') AS topic,
+                           event_time, action, confidence, events.source_id, outlets,
                            -- an article-read event counts as verified once the verifier agreed; events
                            -- from before prompt v3 (no stance) keep counting until they are judged
-                           (origin <> 'gdelt' AND COALESCE(modality, 'asserted') = 'asserted' AND COALESCE(polarity, TRUE)
-                            AND (verifier_verdict = 'yes' OR (verifier_verdict IS NULL AND stance IS NULL))) AS verified,
+                           -- a structured row (connector, human report) is not verified by a model: it counts
+                           -- when its source is trusted enough (a direct/indirect reporter, a dataset), never hearsay
+                           ((origin NOT IN ('gdelt', 'connector') AND COALESCE(modality, 'asserted') = 'asserted' AND COALESCE(polarity, TRUE)
+                             AND (verifier_verdict = 'yes' OR (verifier_verdict IS NULL AND stance IS NULL)))
+                            OR (origin = 'connector' AND COALESCE(s.trust, 0.9) >= 0.5)) AS verified,
                            (origin = 'gdelt' AND COALESCE(weight_class, 'material') = 'material' AND COALESCE(is_root, TRUE)) AS wire_deed,
                            exp(-EXTRACT(EPOCH FROM (NOW() - event_time)) / 86400.0 / 90.0) AS decay
-                    FROM events
+                    FROM events LEFT JOIN sources s ON s.source_id = events.source_id
                     WHERE actor_id IS NOT NULL AND target_id IS NOT NULL AND actor_id <> target_id
                       AND event_time > NOW() - make_interval(days => %s)
                 ), per_topic AS (

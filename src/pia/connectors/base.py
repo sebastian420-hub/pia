@@ -84,6 +84,10 @@ class Document:
     url: Optional[str] = None
     language: str = "en"
     domain: str = "POLITICAL"
+    source_type: str = "OSINT"                 # HUMINT for human reports
+    mission_id: Optional[str] = None
+    geo: Optional[Tuple[float, float]] = None  # (lat, lon)
+    extra: Dict = field(default_factory=dict)  # lands in metadata
 
 
 Item = Union[Entity, Fact, Event, Document, Identifier]
@@ -132,7 +136,8 @@ class Ingestor:
         if not eid:
             ent = self.resolver.resolve(e.name, kind_hint=e.kind, role="MENTIONED",
                                         context={"country_qid": e.country_qid}, local_only=True)
-            if ent and ent.get("resolution") == "RESOLVED" and ent.get("kind") == e.kind:
+            # a typed entity must match its kind; an untyped name ("Iran" as an event actor) takes whatever the web knows
+            if ent and ent.get("resolution") == "RESOLVED" and (e.kind == "UNKNOWN" or ent.get("kind") == e.kind):
                 eid = str(ent["entity_id"])
         if not eid:
             geo = f"SRID=4326;POINT({e.geo[1]} {e.geo[0]})" if e.geo else None
@@ -247,14 +252,17 @@ class Ingestor:
     def upsert_document(self, source_id: str, d: Document) -> bool:
         import hashlib
         h = hashlib.sha256(f"{source_id}|{d.external_id}".encode()).hexdigest()
+        meta = dict(d.extra, connector=source_id, external_id=d.external_id)
+        geo = f"SRID=4326;POINT({d.geo[1]} {d.geo[0]})" if d.geo else None
         rows = self.db.execute_query("""
             INSERT INTO intelligence_records (source_type, source_id, source_agent, source_name, source_url, published_at, content_hash,
                                               content_headline, content_summary, content_raw, body_status, body_fetched_at, domain, priority,
-                                              confidence, language, metadata)
-            VALUES ('OSINT', %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OK', NOW(), %s, 'NORMAL', 0.7, %s, %s::jsonb)
+                                              confidence, language, metadata, mission_id, geo, geo_precision, geo_source)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OK', NOW(), %s, %s, 0.7, %s, %s::jsonb, %s,
+                    %s::geometry, CASE WHEN %s::geometry IS NULL THEN NULL ELSE 'exact' END, CASE WHEN %s::geometry IS NULL THEN NULL ELSE 'reporter' END)
             ON CONFLICT (content_hash) DO NOTHING RETURNING uid
-        """, (source_id, f"connector:{source_id}", source_id, d.url, d.published, h, d.title[:300], d.text[:400], d.text,
-              d.domain, d.language, '{"connector": "%s", "external_id": %s}' % (source_id, _json(d.external_id))), fetch=True)
+        """, (d.source_type, source_id, f"connector:{source_id}", source_id, d.url, d.published, h, d.title[:300], d.text[:400], d.text,
+              d.domain, 'HIGH' if d.source_type == 'HUMINT' else 'NORMAL', d.language, _json(meta), d.mission_id, geo, geo, geo), fetch=True)
         return bool(rows)
 
     # ── run ──
