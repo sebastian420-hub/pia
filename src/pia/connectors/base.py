@@ -138,8 +138,11 @@ class Ingestor:
         """external id → existing entity; else Wikidata Q-id; else name resolution (local only); else new local entity."""
         eid = self.entity_for(source_id, e.external_id)
         if not eid and e.wikidata_qid:
-            ent = self.resolver.ensure_qid(e.wikidata_qid)
-            eid = str(ent["entity_id"]) if ent else None
+            # only what the web already holds: a bulk source may name a million Q-ids, and fetching each from
+            # Wikidata is a million calls. An unknown Q-id is kept on the new row (below) so later sources join it,
+            # and the enrichment agent fills it from Wikidata once something mentions it.
+            rows = self.db.execute_query("SELECT entity_id FROM entities WHERE qid = %s", (e.wikidata_qid,), fetch=True)
+            eid = str(rows[0]["entity_id"]) if rows else None
         if not eid:
             # the name, then the aliases ("Open Joint Stock Company Rosneft Oil Company" is also "PJSC Rosneft"):
             # the first that the web already knows under the same kind wins. Aliases count only when they are
@@ -161,10 +164,12 @@ class Ingestor:
         if not eid:
             geo = f"SRID=4326;POINT({e.geo[1]} {e.geo[0]})" if e.geo else None
             row = self.db.execute_query("""
-                INSERT INTO entities (kind, name, description, resolution, origin, country_qid, primary_geo, metadata, properties)
-                VALUES (%s, %s, %s, 'LOCAL', %s, %s, %s::geometry, %s::jsonb, %s::jsonb) RETURNING entity_id
-            """, (e.kind, e.name[:200], e.description, source_id, e.country_qid, geo,
-                  '{"connector": "%s"}' % source_id, _json(e.properties)), fetch=True)
+                INSERT INTO entities (kind, name, description, resolution, origin, country_qid, primary_geo, metadata, properties, qid)
+                VALUES (%s, %s, %s, %s, %s, %s, %s::geometry, %s::jsonb, %s::jsonb, %s)
+                ON CONFLICT (qid) WHERE qid IS NOT NULL DO UPDATE SET properties = entities.properties || EXCLUDED.properties
+                RETURNING entity_id
+            """, (e.kind, e.name[:200], e.description, 'RESOLVED' if e.wikidata_qid else 'LOCAL', source_id, e.country_qid, geo,
+                  _json({"connector": source_id, "wikidata_pending": bool(e.wikidata_qid)}), _json(e.properties), e.wikidata_qid), fetch=True)
             eid = str(row[0]["entity_id"])
         else:
             self.db.execute_query("""

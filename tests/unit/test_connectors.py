@@ -50,4 +50,4 @@ def test_ftm_pep_positions_become_listings_and_qid_ids_land_on_wikidata():
     assert listing.holder_external_id == "Q24018002"
     assert listing.listing == {"list": "PEP", "program": "Member of the Chamber of Deputies (RO)", "since": "2024-11-01", "until": None, "status": None, "url": None}
     fam = [i for i in items if isinstance(i, Fact)][0]
-    assert fam.predicate == "spouse" and fam.object_external_id == "NK-rel"
+    assert fam.predicate == "spouse of" and fam.object_external_id == "NK-rel"

@@ -120,7 +120,8 @@ class EnrichmentAgent(BaseAgent):
     def refresh_stale(self, limit: int = 20):
         rows = self.db.execute_query("""
             SELECT qid FROM entities WHERE qid IS NOT NULL AND mention_count > 0
-              AND wikidata_synced_at < NOW() - INTERVAL '30 days' ORDER BY mention_count DESC LIMIT %s
+              AND (wikidata_synced_at < NOW() - INTERVAL '30 days' OR wikidata_synced_at IS NULL)   -- NULL: a connector named the Q-id, never fetched
+            ORDER BY (wikidata_synced_at IS NULL) DESC, mention_count DESC LIMIT %s
         """, (limit,), fetch=True) or []
         if rows:
             try:
