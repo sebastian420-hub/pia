@@ -81,7 +81,7 @@ Running cost ≈ $1/day (extraction + reader + verifier + briefs), one Docker ho
 - ~~No mission: Ed Sheeran and Iran carry equal weight.~~ Built 09-20 evening: missions (see plan, steps 2–3).
 - ~~Review queue for names grows.~~ Self-maintaining since 09-20 evening; watch that it stays flat.
 - Items whose Wikidata labels exist only in non-Western languages show as bare Q-ids (fetch all-language labels).
-- One shared token; no users, roles, audit. Fine for one person; a hard stop before private data.
+- ~~One shared token; no users, roles, audit.~~ Access control built 09-21.
 
 ## 4. How the real tools do it, and what we take from them
 
@@ -118,8 +118,9 @@ Running cost ≈ $1/day (extraction + reader + verifier + briefs), one Docker ho
    entities and events are read as written, NOTES like an article; reporters are sources with their own trust.
 4. **Self-maintaining names** — BUILT. The review queue decides its clear cases itself (collectives →
    their country/group, spelling variants, demonyms, quiet names); review stays optional.
-5. **Access control** — DESIGNED (`design/access_control.md`); built the moment a private source is
-   on the table, not before.
+5. **Access control** — BUILT 09-21. Users (viewer / analyst / admin) with their own tokens, sign-in
+   screen, a row is as visible as its source (public · org · restricted + grants), lines built from the
+   shared picture only, audit log, real deletion, admin page. Private sources can come in now.
 
 Not now: golden-set nightly scoring (phase 2 of the verbs work), situation briefs, wall mode, relay.
 

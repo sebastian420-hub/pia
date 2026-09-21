@@ -34,6 +34,7 @@ class BriefWriter:
                 SELECT e.entity_id, array_agg(ev.event_id::text ORDER BY ev.event_id) AS ids, COUNT(*) AS n
                 FROM events ev JOIN entities e ON e.entity_id IN (ev.actor_id, ev.target_id)
                 WHERE ev.origin = 'llm' AND ev.verifier_verdict = 'yes' AND ev.event_time > NOW() - INTERVAL '14 days'
+                  AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.source_id = ev.source_id AND s.visibility = 'restricted')   -- one brief per entity, written from what everyone may read
                 GROUP BY e.entity_id HAVING COUNT(*) >= 2
             )
             SELECT a.entity_id, a.ids, a.n, b.events_hash

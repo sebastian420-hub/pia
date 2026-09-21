@@ -26,6 +26,10 @@ NOTES:
 Free text. Anything here goes through the normal reading, verification and line rules.
 ```
 
+Who sees it: a reporter is a **restricted** source — only the person who uploaded the report, users an admin grants,
+and admins see its entities, events and notes; everyone else's picture is unchanged. An admin can make a reporter
+`org` (any signed-in user) or `public` on the admin page.
+
 What happens: every name is matched to the web (Iran → Q794, Houthis → their node; unknown
 names become local entities with your ids attached), events become *recorded* events (blue
 badge, no verifier — the trust is yours: direct 0.7 · indirect 0.5 · hearsay 0.3, scaled by

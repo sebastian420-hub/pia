@@ -118,10 +118,12 @@ class Ingestor:
         self._cache: Dict[Tuple[str, str], str] = {}
 
     def ensure_source(self, source: Dict):
+        # visibility is set when the source is born and then owned by the admin page, never overwritten by a load
         self.db.execute_query("""
-            INSERT INTO sources (source_id, label, kind, trust, homepage) VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO sources (source_id, label, kind, trust, homepage, visibility) VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (source_id) DO UPDATE SET label = EXCLUDED.label, trust = EXCLUDED.trust, homepage = EXCLUDED.homepage
-        """, (source["source_id"], source["label"], source.get("kind", "DATASET"), source.get("trust", 0.9), source.get("homepage")))
+        """, (source["source_id"], source["label"], source.get("kind", "DATASET"), source.get("trust", 0.9), source.get("homepage"),
+              source.get("visibility", "public")))
 
     # ── identity ──
     def entity_for(self, source_id: str, external_id: str) -> Optional[str]:

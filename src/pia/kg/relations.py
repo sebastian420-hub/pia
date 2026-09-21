@@ -40,6 +40,8 @@ def rebuild(db, days: int = 365):
                            exp(-EXTRACT(EPOCH FROM (NOW() - event_time)) / 86400.0 / 90.0) AS decay
                     FROM events LEFT JOIN sources s ON s.source_id = events.source_id
                     WHERE actor_id IS NOT NULL AND target_id IS NOT NULL AND actor_id <> target_id
+                      -- the shared picture: a restricted source never moves a line; its events show only to those granted
+                      AND COALESCE(s.visibility, 'public') <> 'restricted'
                       AND event_time > NOW() - make_interval(days => %s)
                 ), per_topic AS (
                     SELECT a_id, b_id, kind, topic,
@@ -89,7 +91,9 @@ def rebuild(db, days: int = 365):
                     JOIN mentions m2 ON m1.report_uid = m2.report_uid AND m1.entity_id < m2.entity_id
                     JOIN entities e1 ON e1.entity_id = m1.entity_id AND e1.resolution = 'RESOLVED' AND e1.kind <> 'PLACE'
                     JOIN entities e2 ON e2.entity_id = m2.entity_id AND e2.resolution = 'RESOLVED' AND e2.kind <> 'PLACE'
+                    JOIN intelligence_records u ON u.uid = m1.report_uid
                     WHERE m1.created_at > NOW() - INTERVAL '90 days'
+                      AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.source_id = u.source_id AND s.visibility = 'restricted')
                     GROUP BY 1, 2 HAVING COUNT(DISTINCT m1.report_uid) >= 2
                 )
                 INSERT INTO relations (a_id, b_id, kind, source, label, directed, first_seen, last_seen, event_count, weight, updated_at)

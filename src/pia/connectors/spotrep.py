@@ -192,7 +192,8 @@ class SpotrepConnector(Connector):
     def __init__(self, rep: Spotrep, ref: str, mission_id: Optional[str] = None):
         self.rep, self.ref, self.mission_id = rep, ref, mission_id
         self.source = {"source_id": f"reporter:{rep.reporter}", "label": f"Reporter {rep.reporter}", "kind": "HUMAN",
-                       "trust": round(BASIS_TRUST[rep.basis] * (0.5 + rep.confidence / 2), 2), "homepage": None}
+                       "trust": round(BASIS_TRUST[rep.basis] * (0.5 + rep.confidence / 2), 2), "homepage": None,
+                       "visibility": "restricted"}      # a human report is private until an admin says otherwise
 
     @staticmethod
     def key(name: str) -> str:

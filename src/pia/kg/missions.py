@@ -152,6 +152,7 @@ def raise_alerts(db, mission: Dict) -> int:
                    ev.actor_id::text || '>' || COALESCE(ev.target_id::text, '') || '|' || COALESCE(ev.verb_id::text, ev.action) || '|' || ev.event_time::date AS key
             FROM events ev JOIN entities a ON a.entity_id = ev.actor_id LEFT JOIN entities t ON t.entity_id = ev.target_id
             WHERE ev.origin = 'llm' AND ev.verifier_verdict = 'yes' AND ev.kind = 'HOSTILE'
+              AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.source_id = ev.source_id AND s.visibility = 'restricted')
               AND (ev.actor_id = ANY(%s::uuid[]) OR ev.target_id = ANY(%s::uuid[]))
               AND ev.event_time > NOW() - INTERVAL '7 days'
               AND NOT EXISTS (SELECT 1 FROM mission_memory mm WHERE mm.mission_id = %s
@@ -174,6 +175,7 @@ def raise_alerts(db, mission: Dict) -> int:
                    LEAST(ev.actor_id, ev.target_id)::text || '|' || GREATEST(ev.actor_id, ev.target_id)::text AS pair
             FROM events ev JOIN entities a ON a.entity_id = ev.actor_id JOIN entities t ON t.entity_id = ev.target_id
             WHERE ev.origin = 'llm' AND ev.verifier_verdict = 'yes'
+              AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.source_id = ev.source_id AND s.visibility = 'restricted')
               AND ev.actor_id = ANY(%s::uuid[]) AND ev.target_id = ANY(%s::uuid[]) AND ev.actor_id <> ev.target_id
               AND NOT EXISTS (SELECT 1 FROM mission_memory mm WHERE mm.mission_id = %s
                               AND mm.key = 'pair:' || LEAST(ev.actor_id, ev.target_id)::text || '|' || GREATEST(ev.actor_id, ev.target_id)::text)
@@ -198,6 +200,7 @@ def raise_alerts(db, mission: Dict) -> int:
             WHERE e.kind <> 'COUNTRY' AND ('country' = ANY(r.reasons) OR 'area' = ANY(r.reasons))
               AND e.first_seen > (SELECT created_at FROM missions WHERE mission_id = %s)
               AND e.first_seen > NOW() - INTERVAL '7 days' AND ev.origin = 'llm' AND ev.verifier_verdict = 'yes'
+              AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.source_id = ev.source_id AND s.visibility = 'restricted')
               AND NOT EXISTS (SELECT 1 FROM mission_memory mm WHERE mm.mission_id = %s AND mm.key = 'entity:' || e.entity_id::text)
             GROUP BY e.entity_id, e.name, e.kind HAVING COUNT(ev.event_id) >= %s LIMIT 20
         """, (mid, mid, mid, n_new), fetch=True) or []

@@ -1,3 +1,4 @@
+import json
 import os
 import hashlib
 import fitz  # PyMuPDF
@@ -29,7 +30,7 @@ class DocumentAgent(BaseAgent):
         for filename in os.listdir(self.doc_dir):
             filepath = os.path.join(self.doc_dir, filename)
             
-            if not os.path.isfile(filepath):
+            if not os.path.isfile(filepath) or filename.endswith(".meta.json"):
                 continue
                 
             if filename.lower().endswith('.pdf'):
@@ -87,9 +88,25 @@ class DocumentAgent(BaseAgent):
             from pia.connectors.base import Ingestor
             from pia.kg.resolver import Resolver
             self.ingestor = Ingestor(self.db, Resolver(self.db))
-        stats = self.ingestor.run(SpotrepConnector(rep, f"spotrep:{filename}", mission_id))
+        connector = SpotrepConnector(rep, f"spotrep:{filename}", mission_id)
+        stats = self.ingestor.run(connector)
+        # the uploader may read what they uploaded: a grant on the (restricted) reporter source
+        meta = self._meta(filename)
+        if meta.get("uploaded_by"):
+            self.db.execute_query("""
+                INSERT INTO source_grants (source_id, user_id) VALUES (%s, %s::uuid) ON CONFLICT DO NOTHING
+            """, (connector.source["source_id"], meta["uploaded_by"]))
         logger.success(f"SPOTREP {filename} from {rep.reporter}: {stats}")
         return "processed"
+
+    def _meta(self, filename: str) -> dict:
+        """The upload's sidecar (who uploaded it), if the API wrote one."""
+        p = os.path.join(self.doc_dir, filename + ".meta.json")
+        try:
+            with open(p) as f:
+                return json.load(f)
+        except Exception:
+            return {}
 
     def _inject_chunks(self, full_text: str, filename: str) -> str:
         """
@@ -166,6 +183,8 @@ class DocumentAgent(BaseAgent):
             base, ext = os.path.splitext(filename)
             new_path = os.path.join(target_dir, f"{base}_{hashlib.sha1(filepath.encode()).hexdigest()[:8]}{ext}")
         os.rename(filepath, new_path)
+        if os.path.exists(filepath + ".meta.json"):
+            os.rename(filepath + ".meta.json", new_path + ".meta.json")
         logger.info(f"Archived {filename} to {os.path.basename(target_dir)}/")
 
     def stop(self):

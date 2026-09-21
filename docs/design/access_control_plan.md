@@ -1,7 +1,18 @@
 # Access control — implementation plan
 
-**Status:** PLAN 2026-09-21. Turns `access_control.md` (design note, 09-20) into concrete steps. Built before the
-first private source; nothing private is in PIA today.
+**Status:** BUILT 2026-09-21 (all five steps, one afternoon). Migration 012; `auth.py` resolves tokens to users (the
+old `PIA_API_TOKEN` became the owner's admin token — nothing broke); roles on every write; visibility fragment in 33
+queries + the WebSocket fan-out; relations, co-mentions, briefs and mission alerts built from public+org only, restricted
+events shown on top with a badge to those granted; entities born from a restricted source hidden with it; audit of
+writes, admin actions and restricted reads; real deletion by report or by source; sign-in screen, session, role-aware
+chrome, admin page (users, tokens, sources, grants, audit); SPOTREP reporters restricted by default and granted to
+the uploader. **Verified with one restricted SPOTREP (reporter `crow`)**: viewer — no card row, no timeline, no feed
+item, no search hit, no WebSocket message; analyst with a grant — the row (*recorded · restricted*), the event, the
+feed item, the socket message, and an audit row `read_restricted`; admin — the same plus deletion:
+`DELETE /sources/reporter:crow` removed 1 report, 1 event, 1 alias, 3 ids, archived the one entity only it named, and
+the card no longer mentions it. Tests: API 16 (was 12), unit 101. Deviation from §2: the filter is written as
+"NOT IN (restricted sources the user may not read)" instead of "IN visible" — same result, zero cost when nothing is
+restricted. Was: PLAN 2026-09-21.
 **Follows from:** `missions_and_connectors_plan.md` §4, `gleif_connector_plan.md` (BUILT).
 
 ---
