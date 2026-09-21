@@ -19,7 +19,7 @@ from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 from loguru import logger
 
-from pia.kg.normalize import normalize
+from pia.kg.normalize import bare_name, normalize
 from pia.kg.verbs import VerbCatalogue, guard_family
 
 
@@ -134,11 +134,23 @@ class Ingestor:
             ent = self.resolver.ensure_qid(e.wikidata_qid)
             eid = str(ent["entity_id"]) if ent else None
         if not eid:
-            ent = self.resolver.resolve(e.name, kind_hint=e.kind, role="MENTIONED",
-                                        context={"country_qid": e.country_qid}, local_only=True)
-            # a typed entity must match its kind; an untyped name ("Iran" as an event actor) takes whatever the web knows
-            if ent and ent.get("resolution") == "RESOLVED" and (e.kind == "UNKNOWN" or ent.get("kind") == e.kind):
-                eid = str(ent["entity_id"])
+            # the name, then the aliases ("Open Joint Stock Company Rosneft Oil Company" is also "PJSC Rosneft"):
+            # the first that the web already knows under the same kind wins. Aliases count only when they are
+            # a real name (two words, eight letters — never "DEC", "Bas", "Altair"), and never for people: a
+            # sanctioned "Muhammad Ali" is not the boxer, and kunyas ("Abu Bakr") name many men
+            tries = [e.name]
+            if e.kind != "PERSON":
+                tries += [a for a in e.aliases if len(a.split()) >= 2 and len(a) >= 8]
+                bare = bare_name(e.name)
+                if len(bare) >= 6 and bare != normalize(e.name):
+                    tries.append(bare)
+            for name in tries:
+                ent = self.resolver.resolve(name, kind_hint=e.kind, role="MENTIONED",
+                                            context={"country_qid": e.country_qid}, local_only=True)
+                # a typed entity must match its kind; an untyped name ("Iran" as an event actor) takes whatever the web knows
+                if ent and ent.get("resolution") == "RESOLVED" and (e.kind == "UNKNOWN" or ent.get("kind") == e.kind):
+                    eid = str(ent["entity_id"])
+                    break
         if not eid:
             geo = f"SRID=4326;POINT({e.geo[1]} {e.geo[0]})" if e.geo else None
             row = self.db.execute_query("""

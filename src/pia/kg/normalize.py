@@ -41,3 +41,16 @@ def looks_generic(name: str) -> bool:
             and not re.search(r"\b(ministry|office|department)\b", norm):
         return True
     return False
+
+
+# corporate-form words that carry no identity: "Open Joint Stock Company Rosneft Oil Company" is Rosneft
+# legal forms only: "International", "Industries", "Trading", "Holding" distinguish a subsidiary from its parent and stay
+CORPORATE_FORMS = {"jsc", "pjsc", "ojsc", "cjsc", "oao", "ooo", "pao", "zao", "ao", "llc", "ltd", "limited", "company", "corporation",
+                   "corp", "co", "inc", "plc", "sa", "s.a", "gmbh", "ag", "nv", "bv", "spa", "srl", "sarl", "joint", "stock", "open",
+                   "public", "private", "closed", "the", "of", "and", "&", "state", "federal", "unitary", "oil", "gas"}
+
+
+def bare_name(name: str) -> str:
+    """The name without its corporate-form words — what people actually call the company."""
+    words = [w for w in normalize(name).replace(",", " ").replace(".", " ").split() if w not in CORPORATE_FORMS]
+    return " ".join(words)

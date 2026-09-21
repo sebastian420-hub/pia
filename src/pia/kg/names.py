@@ -47,9 +47,23 @@ def merge(db, loser_id: str, keeper_id: str, alias: Optional[str], why: str):
     if alias and normalize(alias):
         db.execute_query("INSERT INTO entity_aliases (entity_id, alias, alias_norm, source) VALUES (%s, %s, %s, 'auto') ON CONFLICT DO NOTHING",
                          (keeper_id, alias[:200], normalize(alias)))
+    # relations (facts, Wikidata links): the keeper's own row wins where both have one; the rest move over
+    db.execute_query("""
+        DELETE FROM relations l WHERE (l.a_id = %s OR l.b_id = %s) AND (l.a_id = %s OR l.b_id = %s
+           OR EXISTS (SELECT 1 FROM relations k WHERE k.kind = l.kind AND k.source = l.source
+                      AND k.a_id = CASE WHEN l.a_id = %s THEN %s ELSE l.a_id END
+                      AND k.b_id = CASE WHEN l.b_id = %s THEN %s ELSE l.b_id END))
+    """, (loser_id, loser_id, keeper_id, keeper_id, loser_id, keeper_id, loser_id, keeper_id))
+    db.execute_query("UPDATE relations SET a_id = %s WHERE a_id = %s", (keeper_id, loser_id))
+    db.execute_query("UPDATE relations SET b_id = %s WHERE b_id = %s", (keeper_id, loser_id))
+    db.execute_query("INSERT INTO entity_aliases (entity_id, alias, alias_norm, source) SELECT %s, alias, alias_norm, source FROM entity_aliases WHERE entity_id = %s ON CONFLICT DO NOTHING",
+                     (keeper_id, loser_id))
     db.execute_query("""
         UPDATE entities k SET mention_count = (SELECT COUNT(*) FROM mentions m WHERE m.entity_id = k.entity_id),
-               last_seen = GREATEST(k.last_seen, l.last_seen)
+               last_seen = GREATEST(k.last_seen, l.last_seen),
+               listings = (SELECT COALESCE(jsonb_agg(DISTINCT x), '[]'::jsonb) FROM jsonb_array_elements(COALESCE(k.listings, '[]'::jsonb) || COALESCE(l.listings, '[]'::jsonb)) x),
+               properties = COALESCE(l.properties, '{}'::jsonb) || COALESCE(k.properties, '{}'::jsonb),
+               description = COALESCE(k.description, l.description), country_qid = COALESCE(k.country_qid, l.country_qid)
         FROM entities l WHERE k.entity_id = %s AND l.entity_id = %s
     """, (keeper_id, loser_id))
     db.execute_query("DELETE FROM entities WHERE entity_id = %s", (loser_id,))
