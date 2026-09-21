@@ -195,7 +195,7 @@ class Ingestor:
                 UPDATE entities SET listings = (
                     SELECT COALESCE(jsonb_agg(DISTINCT x), '[]'::jsonb) FROM jsonb_array_elements(listings || %s::jsonb) x)
                 WHERE entity_id = %s
-            """, (_json(e.listings), eid))
+            """, (_json([dict(l, source=source_id) for l in e.listings]), eid))
         self._cache[(source_id, e.external_id)] = eid
         return eid
 
@@ -218,7 +218,7 @@ class Ingestor:
                 UPDATE entities SET listings = (
                     SELECT COALESCE(jsonb_agg(DISTINCT x), '[]'::jsonb) FROM jsonb_array_elements(listings || %s::jsonb) x)
                 WHERE entity_id = %s
-            """, (_json([f.properties["listing"]]), a))
+            """, (_json([dict(f.properties["listing"], source=source_id)]), a))
         self.db.execute_query("""
             INSERT INTO relations (a_id, b_id, kind, source, label, directed, first_seen, last_seen, event_count, weight,
                                    via_source, record_ref, properties, updated_at)
@@ -338,7 +338,7 @@ class Ingestor:
             # listings, grouped per holder so a person with 40 posts is one update
             by_holder: Dict[str, List[Dict]] = {}
             for li in pending_listings:
-                by_holder.setdefault(li.holder_external_id, []).append(li.listing)
+                by_holder.setdefault(li.holder_external_id, []).append(dict(li.listing, source=src["source_id"]))
             for holder, lst in by_holder.items():
                 eid = self.entity_for(src["source_id"], holder)
                 if eid:
