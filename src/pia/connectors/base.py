@@ -225,7 +225,12 @@ class Ingestor:
                 label = EXCLUDED.label, first_seen = LEAST(relations.first_seen, EXCLUDED.first_seen),
                 last_seen = GREATEST(relations.last_seen, EXCLUDED.last_seen), weight = EXCLUDED.weight,
                 via_source = EXCLUDED.via_source, record_ref = EXCLUDED.record_ref,
-                properties = relations.properties || EXCLUDED.properties, updated_at = NOW()
+                -- two predicates between the same pair from one source (a register saying "director of" and
+                -- "owner of"): the row keeps the latest label and remembers every predicate seen
+                properties = relations.properties || EXCLUDED.properties
+                    || jsonb_build_object('predicates', (SELECT jsonb_agg(DISTINCT x) FROM jsonb_array_elements_text(
+                           COALESCE(relations.properties->'predicates', jsonb_build_array(relations.label)) || jsonb_build_array(EXCLUDED.label)) x)),
+                updated_at = NOW()
         """, (a, b, kind, label, _date(f.valid_from), _date(f.valid_to), 1.0 if not f.valid_to else 0.5,
               source_id, f.record_ref, _json(f.properties)))
         return True

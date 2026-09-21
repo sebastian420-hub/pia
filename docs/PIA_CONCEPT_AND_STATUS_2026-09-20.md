@@ -108,7 +108,9 @@ Running cost ≈ $1/day (extraction + reader + verifier + briefs), one Docker ho
 
 1. **Connectors and external IDs** — one interface every source implements (entity / event /
    document + provenance), an `external_ids` table (their ID ↔ our entity), FtM as the wire format
-   for structured data; **OpenSanctions as the first connector** (sanctions, PEPs, ownership).
+   for structured data; **OpenSanctions as the first connector** (sanctions, PEPs, ownership). BUILT 09-20/21:
+   sanctions (73k entities, 169k facts), PEPs (723k people, 998k positions), **GLEIF** ownership register
+   (36k companies around the ones the web knows, 44k consolidation facts) — three databases on one web.
 2. **Missions** — BUILT. A mission is a collection plan: countries, area, feeds, watchlist, topics, alert
    rules. Broad collection continues; the mission scores relevance (every 15 min), and the globe, feed,
    alerts and web follow the active mission (`MISSION ▾` in the status bar; "show all" lifts it).

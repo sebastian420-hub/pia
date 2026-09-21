@@ -1,6 +1,12 @@
 # GLEIF connector — who owns whom, for the companies the web already knows
 
-**Status:** PLAN 2026-09-21. Follows `missions_and_connectors_plan.md` §1 (connector contract, BUILT) and
+**Status:** BUILT 2026-09-21 — seed 3,829 LEIs (2,614 OpenSanctions + 1,288 Wikidata P1278) → grown to 36,555
+companies and 59,550 edges in 2 hops → 36,555 records fetched in 13 min (API, cached) → 43,970 facts, 623 of them on
+Wikidata nodes. Rosneft card: OWNERSHIP → *RN-Capital · directly consolidated by · gleif · 2025-06-05 · source ↗* and
+*Rosneft Deutschland · directly consolidated by · 2021-01-01*. Twin check: 16 merged, 15 ambiguous skipped (rule
+tightened on the way: generic institution names join only on a matching country). Deviation from the plan: one fact per
+pair — "directly consolidated by" replaces the redundant "ultimately" edge; the relation row remembers every predicate
+seen. Was: PLAN 2026-09-21. Follows `missions_and_connectors_plan.md` §1 (connector contract, BUILT) and
 the OpenSanctions PEPs load of the same day. Second structured database; first one with *its own* columns
 (not FollowTheMoney), so it is the real test of "any database plugs in with a small connector".
 

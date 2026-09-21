@@ -29,7 +29,7 @@ def main(dry: bool):
             JOIN entity_aliases b ON b.alias_norm = a.alias_norm
             JOIN entities w ON w.entity_id = b.entity_id AND w.qid IS NOT NULL AND w.resolution = 'RESOLVED' AND w.kind = l.kind
                  AND (w.country_qid IS NULL OR l.country_qid IS NULL OR w.country_qid = l.country_qid)   -- an Iranian academy is not the US one
-            WHERE l.resolution = 'LOCAL' AND l.origin LIKE 'opensanctions%%' AND l.qid IS NULL
+            WHERE l.resolution = 'LOCAL' AND (l.origin LIKE 'opensanctions%%' OR l.origin = 'gleif') AND l.qid IS NULL
               AND l.kind <> 'PERSON' AND array_length(string_to_array(a.alias_norm, ' '), 1) >= 2 AND length(a.alias_norm) >= 8
         )
         SELECT loser, lname, kind, keeper, kname, qid, MIN(alias) AS alias
@@ -56,6 +56,24 @@ def main(dry: bool):
         for h in hits:
             rows.append({"loser": l["entity_id"], "lname": l["name"], "kind": l["kind"], "keeper": h["keeper"], "kname": h["kname"],
                          "qid": h["qid"], "alias": f"bare:{bare}"})
+    # generic institutional names ("Ministry of Home Affairs", "Central Bank") exist in every country: they
+    # join only when both sides say the same country; and nothing joins a country's own name
+    import re
+    GENERIC = re.compile(r"^(ministry|department|office|bureau|council|central bank|bank|national|federal|state|government|republic|kingdom|people'?s) ", re.I)
+    country_names = {r["alias_norm"] for r in (db.execute_query(
+        "SELECT a.alias_norm FROM entity_aliases a JOIN entities e ON e.entity_id = a.entity_id WHERE e.kind = 'COUNTRY'", fetch=True) or [])}
+    countries = {str(r["entity_id"]): r["country_qid"] for r in (db.execute_query("SELECT entity_id, country_qid FROM entities WHERE country_qid IS NOT NULL", fetch=True) or [])}
+    kept = []
+    for r in rows:
+        alias = str(r["alias"]).replace("bare:", "").lower()
+        if alias in country_names:
+            continue
+        if GENERIC.match(alias) or GENERIC.match(r["lname"]):
+            lc, kc = countries.get(str(r["loser"])), countries.get(str(r["keeper"]))
+            if not lc or not kc or lc != kc:
+                continue
+        kept.append(r)
+    rows = kept
     # one keeper per loser only
     by_loser = {}
     for r in rows:

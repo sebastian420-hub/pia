@@ -225,6 +225,11 @@ services:
       - DB_NAME=pia
       # OpenSanctions datasets to pull nightly (free for non-commercial use): sanctions,peps
       - OPENSANCTIONS_DATASETS=${OPENSANCTIONS_DATASETS:-sanctions}
+      # GLEIF ownership register: seed-and-grow from the LEIs the web holds (0 = off)
+      - GLEIF_ENABLED=${GLEIF_ENABLED:-1}
+      - GLEIF_HOPS=${GLEIF_HOPS:-2}
+      - GLEIF_FUNDS=${GLEIF_FUNDS:-0}
+      - GLEIF_CACHE=/app/data/gleif
       - CONNECTORS_EVERY_SEC=${CONNECTORS_EVERY_SEC:-86400}
     depends_on:
       pia_init:
