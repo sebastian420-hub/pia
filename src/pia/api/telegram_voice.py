@@ -154,8 +154,11 @@ async def list_missions(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == '__main__':
     if not TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN not found in environment.")
-        exit(1)
+        # optional feature: without a bot token the container idles instead of restart-looping
+        logger.warning("TELEGRAM_BOT_TOKEN not set: the Telegram bot is off (set it in .env to enable).")
+        import time
+        while True:
+            time.sleep(3600)
     if not ALLOWED_IDS:
         logger.error("ALLOWED_TELEGRAM_USER_IDS is empty; refusing to start a bot nobody may use.")
         exit(1)

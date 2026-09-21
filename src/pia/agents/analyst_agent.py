@@ -49,6 +49,7 @@ class AnalystAgent(BaseAgent):
         self.nlp.set_catalogue(self.verbs.prompt_block())
         self._catalogue_at = time.time()
         self.name = f"analyst_{socket.gethostname()}"
+        self._tidy_at = 0.0
         logger.info(f"{self.name} ready (event extraction + Wikidata resolution)")
 
     # ── queue ─────────────────────────────────────────────────────────────────
@@ -58,6 +59,10 @@ class AnalystAgent(BaseAgent):
             self.verbs.reload()
             self.nlp.set_catalogue(self.verbs.prompt_block())
             self._catalogue_at = time.time()
+        if time.time() - self._tidy_at > 120:
+            # replicas are replaced on every rebuild: the heartbeats of dead siblings must not show as stale agents
+            self.db.execute_query("DELETE FROM agent_heartbeats WHERE agent_name LIKE 'analyst_%%' AND agent_name <> %s AND last_beat < NOW() - INTERVAL '3 minutes'", (self.name,))
+            self._tidy_at = time.time()
         while self.running:
             if not self.process_one_job():
                 return
