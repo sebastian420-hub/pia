@@ -83,9 +83,12 @@ def ftm_items(lines: Iterable[str], iso2_to_qid: Dict[str, str]) -> Iterable[Ite
         elif schema == "Ownership":
             owner, asset = _first(props, "owner"), _first(props, "asset")
             if owner and asset:
-                yield Fact(subject_external_id=owner, predicate=(_first(props, "role") or "owns").lower()[:60], object_external_id=asset,
+                # the subject is the owner, so the predicate must read from the owner's side: lists write the role from
+                # the asset's side ("Owned or Controlled By"), which would come out backwards as "Rosneft — owned by — RN Holding"
+                yield Fact(subject_external_id=owner, predicate="owns", object_external_id=asset,
                            family="NEUTRAL·ownership", valid_from=_first(props, "startDate"), valid_to=_first(props, "endDate"),
-                           record_ref=_first(props, "sourceUrl") or fid, properties={"share": _first(props, "percentage")})
+                           record_ref=_first(props, "sourceUrl") or fid,
+                           properties={"share": _first(props, "percentage"), "role": _first(props, "role")})
         elif schema == "Directorship":
             director, org = _first(props, "director"), _first(props, "organization")
             if director and org:

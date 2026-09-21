@@ -47,7 +47,8 @@ UNDERSTAND  analyst ×3  ─ prompt v3 ─►  entities (Wikidata Q-id or local)
                  │
 PRESENT     globe (web layer: verified arcs; reports, events, cameras) · wheel (one entity, partners on a
             fixed ring, list) · card (brief · connections in words + verdict · 30-day strip) · evidence
-            (verified quotes, then wire signals) · archive (search, tables) · review (names · verbs)
+            (verified quotes, then wire signals) · archive (search, tables) · review (names · verbs) ·
+            assistant (answers from the web with [n] sources, within what the user may see — 09-21)
 ```
 
 - **Wire vs verified.** GDELT's coded guesses are kept as *wire* signals (faint, off by default on the

@@ -1,6 +1,16 @@
 # The assistant — answers from the web, with sources, within what you may see
 
-**Status:** PLAN 2026-09-21. Owner: *"what about assistant? is it working?"* — it answers, but from ten headlines.
+**Status:** BUILT 2026-09-21 (same afternoon). `pia-api/assistant.py` — understand → resolve → gather (the card's own
+queries, visibility-filtered, numbered, ≤ 6k tokens) → answer with [n] per sentence → sources; `/chat` returns
+`reply + data{sources, entities, missing, window_days, kind}`; restricted reads audited. UI: chips under the answer
+(event/relation → evidence panel, report → report, entity → card), "N sources of M · last 7 d", suggested questions
+(mission-aware). Checked: *"What is happening between Iran and the United States this week?"* → four cited sentences
+from verified events ("Iran warned it would launch … attacks against U.S. bases [1][11]…"), chip [11] opens the
+Iran ↔ United States evidence panel; *"Who is Abbas Araghchi?"* → Wikidata description + this week's verified visit
+to China; *"Who owns Rosneft subsidiaries?"* → GLEIF/OpenSanctions facts (found and fixed on the way: ownership facts
+were worded from the asset's side, "Rosneft — owned or controlled by — RN Holding"; now "owns", 4,114 rows relabelled);
+*"Anything new today?"* → the day's alerts. Tests: 5 new (21 API). Cost ≈ $0.003/question, ~4 s.
+Was: PLAN 2026-09-21. Owner: *"what about assistant? is it working?"* — it answered, but from ten headlines.
 **Follows from:** `access_control_plan.md` (BUILT — every answer must respect visibility),
 `living_verbs_plan.md` (BUILT — verified events with words and quotes are the material), `missions_and_connectors_plan.md`.
 
