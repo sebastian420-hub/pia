@@ -164,8 +164,8 @@ class GdeltAgent(BaseAgent):
         if not name or norm in GDELT_GENERIC_ACTORS:
             return None, False, False          # "CITIZEN", "AIR FORCE", "PRINCE": a role, not a thing
         ent = self.resolver.resolve(self._title(name), role="ACTOR", context={"country_qid": qid}, local_only=True)
-        if ent and ent.get('event_entity'):
-            ent = ent['event_entity']            # "State Department" → United States
+        if ent and 'event_entity' in ent:
+            ent = ent['event_entity']            # "State Department" → United States; "West Asia" → nobody
         if not ent or ent['resolution'] != 'RESOLVED' or ent['kind'] not in ACTOR_KINDS or ent['qid'] in CONTINENT_QIDS:
             return None, False, False
         # a wire name must match the thing's own label, not a loose Wikidata alias

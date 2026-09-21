@@ -85,7 +85,10 @@ class Verifier:
             stance = max(-3, min(3, int(round(float(data.get("stance"))))))
         except (TypeError, ValueError):
             stance = None
-        return {"verdict": verdict, "stance": stance, "note": str(data.get("note") or "")[:200]}
+        modality = str(data.get("modality") or "").lower()
+        if modality not in ("asserted", "intended", "claimed", "hypothetical", "denied"):
+            modality = None
+        return {"verdict": verdict, "stance": stance, "modality": modality, "note": str(data.get("note") or "")[:200]}
 
     def run(self, budget: int) -> int:
         rows = self.pending(budget)
@@ -94,11 +97,13 @@ class Verifier:
             out = self.judge(row)
             if not out:
                 continue
+            # the verifier's modality is the one that counts: "would halt his campaign if…" is hypothetical
+            # even when the reader filed it as asserted — and a non-asserted event draws no line
             self.db.execute_query("""
                 UPDATE events SET verifier_verdict = %s, verifier_stance = %s, verified_at = NOW(),
-                       verifier_note = %s
+                       verifier_note = %s, modality = COALESCE(%s, modality)
                 WHERE event_id = %s AND event_time = %s
-            """, (out["verdict"], out["stance"], out["note"], row["event_id"], row["event_time"]))
+            """, (out["verdict"], out["stance"], out["note"], out["modality"], row["event_id"], row["event_time"]))
             done += 1
         if done:
             logger.success(f"verifier: {done} events judged ({self.model})")

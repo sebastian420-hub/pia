@@ -254,8 +254,9 @@ class AnalystAgent(BaseAgent):
         if surface not in resolved:
             resolved[surface] = self.resolver.resolve(surface, role=role, context=context)
         ent = resolved[surface]
-        # a ministry / armed force / agency acts as its country in events (mention keeps the body)
-        if ent and role in ("ACTOR", "TARGET") and ent.get("event_entity"):
+        # a ministry / armed force / agency / place acts as its country in events (the mention keeps the body);
+        # a place with no country ("West Asia") is no party to an event at all
+        if ent and role in ("ACTOR", "TARGET") and "event_entity" in ent:
             return ent["event_entity"]
         return ent
 

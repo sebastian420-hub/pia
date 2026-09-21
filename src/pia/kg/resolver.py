@@ -60,12 +60,23 @@ class Resolver:
                 return ent
 
         local = self._lookup_local(norm, kind_hint, context, strict_country=local_only, role=role)
-        if local:
+        # a small place that merely shares the name ("Scotland", a US town) must not stop the lookup that
+        # would find the obvious item: weak place-only hits are re-checked against Wikidata when allowed
+        weak_place = bool(local) and local.get("kind") == "PLACE" and (local.get("sitelinks") or 0) < 20 \
+            and (local.get("population") or 0) < 100_000 and not local_only
+        if local and not weak_place:
             return self._as_actor(local, role)
         if local_only:
             return None
 
         candidates = self._candidates(surface, norm)
+        if weak_place and candidates:
+            best = max(candidates, key=lambda c: c["parsed"].get("sitelinks") or 0)
+            if (best["parsed"].get("sitelinks") or 0) > 3 * max(1, local.get("sitelinks") or 0):
+                return self._as_actor(self.upsert_wikidata(best["parsed"]), role)
+            return self._as_actor(local, role)
+        if weak_place:
+            return self._as_actor(local, role)
         if candidates is None:   # Wikidata unreachable / rate-limited: park it, retried soon by the maintenance agent
             return self._local_entity(surface, kind_hint, review=True, note="lookup failed")
         if not candidates:
@@ -102,6 +113,14 @@ class Resolver:
             return ent
         if ent.get("qid") in CONTINENT_QIDS:
             return None
+        # a place does not act or get acted upon — its country does ("strikes on Kyiv" → Ukraine);
+        # a region with no country ("West Asia") is no party at all. The mention keeps the place.
+        if ent.get("kind") == "PLACE":
+            if ent.get("country_qid"):
+                country = self.ensure_qid(ent["country_qid"])
+                if country and country.get("kind") == "COUNTRY":
+                    return dict(ent, event_entity=country)
+            return dict(ent, event_entity=None)
         if ent.get("kind") == "ORG" and ent.get("country_qid"):
             p31 = set((ent.get("p31") or []))
             if not p31 and ent.get("entity_id"):
@@ -252,7 +271,12 @@ class Resolver:
             out.append({"parsed": p, "kind": kind, "score": round(s, 2)})
         return out
 
+    # when an item is several things at once, the most specific identity wins:
+    # Canada is a "dominion" (a place) and a "country" — it is a country
+    KIND_PRIORITY = ("COUNTRY", "PERSON", "ORG", "VESSEL", "AIRCRAFT", "PLACE", "EVENT")
+
     def _kind_from_p31(self, p31: List[str]) -> str:
+        kinds = []
         for cls in p31:
             if cls in self._class_cache:
                 k = self._class_cache[cls]
@@ -266,6 +290,9 @@ class Resolver:
                         "INSERT INTO wikidata_classes (class_qid, kind) VALUES (%s, %s) ON CONFLICT (class_qid) DO NOTHING", (cls, k))
                 self._class_cache[cls] = k
             if k != "UNKNOWN":
+                kinds.append(k)
+        for k in self.KIND_PRIORITY:
+            if k in kinds:
                 return k
         return "UNKNOWN"
 

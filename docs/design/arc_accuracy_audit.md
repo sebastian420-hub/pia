@@ -1,6 +1,19 @@
 # Are the lines true? — audit of the events behind the globe arcs
 
 **Status:** RESEARCH 2026-09-19 — findings only. Owner: *"I feel like it is not accurate."*
+**Re-audit 2026-09-21 (prompt v3 + verifier, 40 random verified line-forming events of the last 30 h):** 35½ / 40
+right ≈ **89 %** — below the 95 % target. The 4½ misses, each with its cause and the fix made the same day:
+1. *Gantz — halt his campaign if failing to cross — Knesset* (hypothetical filed as asserted, wrong target) and
+   *Trump — meet — Xi* ("will sit across… on September 24", future) — the verifier had **judged the modality and we
+   threw it away**: `verifier.py` now writes the verifier's modality onto the event, so a non-asserted event stops
+   drawing a line. 2. *BRICS — agree — West Asia* — a region as a party: places now act as their country and a
+   place with no country is no party (`resolver._as_actor`, analyst and GDELT). 3. *Trump — threaten — European
+   Political Community* ("Europe" resolved to the EPC) — open; needs the "Europe → EU as an actor" rule.
+   4. *Frederiksen — find a way forward peacefully on — US* (a hope, +2) — modality again (fixed by 1).
+   Found alongside: **Canada was a PLACE** (its first Wikidata class, "dominion", won over "country") — kinds now
+   follow a priority (country > person > org > place); 1,100+ items re-kinded. **"Scotland" resolved to a US town**
+   because a weak local hit stopped the Wikidata lookup — weak place-only hits are now re-checked against Wikidata.
+   Next re-audit after 24 h of the fixes; target unchanged.
 **Method:** took the strongest pairs, sampled 7 GDELT events each at random, fetched the real
 headline of each source page, and judged whether the coded event matches the story.
 

@@ -349,4 +349,6 @@ GOVERNMENT_SEATS = {
     "ottawa": "Q16", "brasilia": "Q155", "cairo": "Q79", "damascus": "Q858", "baghdad": "Q796",
     "kabul": "Q889", "naypyidaw": "Q836", "bangkok": "Q869", "hanoi": "Q881", "jakarta": "Q252",
     "manila": "Q928", "the white house": "Q30", "the pentagon": "Q30", "capitol hill": "Q30",
+    # "Europe" as a party to an event is the Union (the continent itself never acts)
+    "europe": "Q458", "the eu": "Q458", "the european union": "Q458",
 }
