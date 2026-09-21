@@ -33,3 +33,21 @@ def test_ftm_maps_entities_sanctions_ownership_and_ids():
     assert (o.subject_external_id, o.object_external_id) == ("P1", "C1")
     assert ids[0].kind == "passport" and ids[0].value == "PP9"
     assert len(items) == 5      # the Address row is ignored
+
+
+def test_ftm_pep_positions_become_listings_and_qid_ids_land_on_wikidata():
+    from pia.connectors.base import Listing
+    lines = [
+        '{"id": "NK-occ1", "schema": "Occupancy", "properties": {"holder": ["Q24018002"], "post": ["Q98958542"], "startDate": ["2024-11-01"]}}',
+        '{"id": "Q24018002", "schema": "Person", "properties": {"name": ["Ana Pop"], "topics": ["role.pep"], "citizenship": ["ro"], "classification": ["National government (current)"]}}',
+        '{"id": "Q98958542", "schema": "Position", "properties": {"name": ["Member of the Chamber of Deputies"], "country": ["ro"]}}',
+        '{"id": "NK-fam", "schema": "Family", "properties": {"person": ["Q24018002"], "relative": ["NK-rel"], "relationship": ["spouse"]}}',
+    ]
+    items = list(ftm_items(lines, {"RO": "Q218"}))
+    person = [i for i in items if isinstance(i, Entity)][0]
+    assert person.wikidata_qid == "Q24018002" and person.country_qid == "Q218" and person.properties["classification"]
+    listing = [i for i in items if isinstance(i, Listing)][0]     # yielded last, after the Position arrived
+    assert listing.holder_external_id == "Q24018002"
+    assert listing.listing == {"list": "PEP", "program": "Member of the Chamber of Deputies (RO)", "since": "2024-11-01", "until": None, "status": None, "url": None}
+    fam = [i for i in items if isinstance(i, Fact)][0]
+    assert fam.predicate == "spouse" and fam.object_external_id == "NK-rel"

@@ -48,6 +48,13 @@ class Identifier:
 
 
 @dataclass
+class Listing:
+    """A list the holder is on (a sanctions list, a PEP register): shown on the card's LISTS line, no node created."""
+    holder_external_id: str
+    listing: Dict          # {"list": "PEP", "program": "Minister of Defence (Iran)", "since": …, "until": …, "url": …}
+
+
+@dataclass
 class Fact:
     subject_external_id: str
     predicate: str                             # "sanctioned by", "owned by", "director of"
@@ -90,7 +97,7 @@ class Document:
     extra: Dict = field(default_factory=dict)  # lands in metadata
 
 
-Item = Union[Entity, Fact, Event, Document, Identifier]
+Item = Union[Entity, Fact, Event, Document, Identifier, Listing]
 
 
 class Connector:
@@ -282,9 +289,10 @@ class Ingestor:
         src = connector.source
         self.ensure_source(src)
         run = self.db.execute_query("INSERT INTO connector_runs (source_id) VALUES (%s) RETURNING run_id", (src["source_id"],), fetch=True)[0]["run_id"]
-        stats = {"entities": 0, "facts": 0, "events": 0, "documents": 0, "identifiers": 0, "skipped": 0}
+        stats = {"entities": 0, "facts": 0, "events": 0, "documents": 0, "identifiers": 0, "listings": 0, "skipped": 0}
         pending_facts: List[Fact] = []
         pending_ids: List[Identifier] = []
+        pending_listings: List[Listing] = []
         try:
             for item in connector.pull(since):
                 if isinstance(item, Entity):
@@ -293,6 +301,8 @@ class Ingestor:
                     pending_facts.append(item)          # facts after entities: their ends may come later in the stream
                 elif isinstance(item, Identifier):
                     pending_ids.append(item)
+                elif isinstance(item, Listing):
+                    pending_listings.append(item)
                 elif isinstance(item, Event):
                     stats["events"] += int(self.upsert_event(src["source_id"], item))
                 elif isinstance(item, Document):
@@ -313,6 +323,19 @@ class Ingestor:
                         ON CONFLICT (source_id, external_id) DO NOTHING
                     """, (src["source_id"], f"{i.kind}:{i.value}", eid, i.kind))
                     stats["identifiers"] += 1
+            # listings, grouped per holder so a person with 40 posts is one update
+            by_holder: Dict[str, List[Dict]] = {}
+            for li in pending_listings:
+                by_holder.setdefault(li.holder_external_id, []).append(li.listing)
+            for holder, lst in by_holder.items():
+                eid = self.entity_for(src["source_id"], holder)
+                if eid:
+                    self.db.execute_query("""
+                        UPDATE entities SET listings = (
+                            SELECT COALESCE(jsonb_agg(DISTINCT x), '[]'::jsonb) FROM jsonb_array_elements(COALESCE(listings, '[]'::jsonb) || %s::jsonb) x)
+                        WHERE entity_id = %s
+                    """, (_json(lst), eid))
+                    stats["listings"] += len(lst)
             self.db.execute_query("UPDATE connector_runs SET finished_at = NOW(), status = 'done', stats = %s::jsonb WHERE run_id = %s", (_json(stats), run))
         except Exception as e:
             self.db.execute_query("UPDATE connector_runs SET finished_at = NOW(), status = 'failed', stats = %s::jsonb, note = %s WHERE run_id = %s", (_json(stats), str(e)[:500], run))

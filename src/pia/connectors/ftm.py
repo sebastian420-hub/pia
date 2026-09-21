@@ -7,9 +7,10 @@ line per entity with `id`, `schema` (Person, Company, Sanction, Ownership, …) 
 code — only a source row and a file or URL.
 """
 import json
-from typing import Dict, Iterable, Optional
+import re
+from typing import Dict, Iterable, List, Optional
 
-from pia.connectors.base import Entity, Fact, Identifier, Item
+from pia.connectors.base import Entity, Fact, Identifier, Item, Listing
 
 KIND = {
     "Person": "PERSON", "Organization": "ORG", "Company": "ORG", "LegalEntity": "ORG", "PublicBody": "ORG",
@@ -20,7 +21,7 @@ ID_PROPS = {"registrationNumber": "registration", "innCode": "tax", "ogrnCode": 
             "icaoCode": "icao", "registrationNumber_": "registration"}
 KEEP_PROPS = ("birthDate", "birthPlace", "gender", "nationality", "citizenship", "position", "incorporationDate",
               "jurisdiction", "legalForm", "sector", "website", "flag", "type", "buildDate", "callSign", "programId",
-              "topics", "sourceUrl", "notes", "modifiedAt")
+              "topics", "sourceUrl", "notes", "modifiedAt", "classification")
 
 
 def _first(props: Dict, key: str) -> Optional[str]:
@@ -29,7 +30,11 @@ def _first(props: Dict, key: str) -> Optional[str]:
 
 
 def ftm_items(lines: Iterable[str], iso2_to_qid: Dict[str, str]) -> Iterable[Item]:
-    """Yield connector items from FtM JSON lines. Unknown schemata are ignored."""
+    """Yield connector items from FtM JSON lines. Unknown schemata are ignored.
+    Positions and Occupancies (the PEP datasets) are buffered: a post's name may come after the people who hold it,
+    so the PEP listings are yielded once the stream ends."""
+    positions: Dict[str, Dict] = {}          # position id → {"name", "country"}
+    occupancies: List[Dict] = []
     for line in lines:
         try:
             d = json.loads(line)
@@ -42,13 +47,27 @@ def ftm_items(lines: Iterable[str], iso2_to_qid: Dict[str, str]) -> Iterable[Ite
             names = props.get("name") or []
             name = _pick_name(names) or fid
             aliases = [n for n in names if n != name] + list(props.get("alias") or [])
-            cc = (_first(props, "country") or _first(props, "jurisdiction") or _first(props, "nationality") or _first(props, "flag") or "").upper()
+            cc = (_first(props, "country") or _first(props, "jurisdiction") or _first(props, "nationality") or _first(props, "citizenship") or _first(props, "flag") or "").upper()
             country_qid = iso2_to_qid.get(cc)
             desc = _first(props, "position") or (_first(props, "notes") or "")[:300] or None
             other_ids = [(kind, v) for prop, kind in ID_PROPS.items() for v in (props.get(prop) or [])]
+            # OpenSanctions keys Wikidata-derived people by the Q-id itself
+            qid = _first(props, "wikidataId") or (fid if re.fullmatch(r"Q\d+", fid) else None)
             yield Entity(external_id=fid, kind=KIND[schema], name=name[:200], aliases=aliases[:30], description=desc,
                          country_qid=country_qid, properties={k: props[k] for k in KEEP_PROPS if k in props},
-                         wikidata_qid=_first(props, "wikidataId"), other_ids=other_ids)
+                         wikidata_qid=qid, other_ids=other_ids)
+        elif schema == "Position":
+            positions[fid] = {"name": _pick_name(props.get("name") or []) or fid, "country": (_first(props, "country") or "").upper()}
+        elif schema == "Occupancy":
+            holder, post = _first(props, "holder"), _first(props, "post")
+            if holder and post:
+                occupancies.append({"holder": holder, "post": post, "since": _first(props, "startDate"), "until": _first(props, "endDate"),
+                                    "status": _first(props, "status"), "url": _first(props, "sourceUrl")})
+        elif schema == "Family":
+            person, relative = _first(props, "person"), _first(props, "relative")
+            if person and relative:
+                yield Fact(subject_external_id=person, predicate=_kinship(_first(props, "relationship")),
+                           object_external_id=relative, family="NEUTRAL·statement", record_ref=_first(props, "sourceUrl") or fid)
         elif schema == "Sanction":
             subject = _first(props, "entity")
             if not subject:
@@ -88,7 +107,24 @@ def ftm_items(lines: Iterable[str], iso2_to_qid: Dict[str, str]) -> Iterable[Ite
             if holder and number:
                 yield Identifier(holder_external_id=holder, kind="passport" if schema == "Passport" else "id", value=number,
                                  properties={"country": _first(props, "country"), "type": _first(props, "type")})
-        # Address, CryptoWallet, Security, Family, Representation, UnknownLink, Asset: not mapped yet
+        # Address, CryptoWallet, Security, Representation, UnknownLink, Asset: not mapped yet
+    for o in occupancies:
+        post = positions.get(o["post"])
+        program = f"{post['name']} ({post['country']})" if post and post["country"] else (post["name"] if post else o["post"])
+        yield Listing(holder_external_id=o["holder"], listing={"list": "PEP", "program": program[:200], "since": o["since"],
+                                                              "until": o["until"], "status": o["status"], "url": o["url"]})
+
+
+def _kinship(rel: Optional[str]) -> str:
+    """'son of Yury Chaika' → 'son of'; 'Spouse' → 'spouse of'; free text → 'relative of' (the catalogue must not fill with names)."""
+    r = (rel or "").strip().lower()
+    if not r:
+        return "relative of"
+    if " of " in r:
+        r = r.split(" of ", 1)[0].strip() + " of"
+    elif not r.endswith(" of"):
+        r = r + " of"
+    return r[:40] if len(r.split()) <= 3 and r.replace(" of", "").replace("-", "").replace(" ", "").isalpha() else "relative of"
 
 
 def _pick_name(names) -> Optional[str]:
